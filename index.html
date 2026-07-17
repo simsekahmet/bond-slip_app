@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bond Stress Studio - tau_max Prediction</title>
+<title>Bond Stress Prediction Tool</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
@@ -144,10 +144,10 @@ td{color:var(--txt)}
 .filter-choice{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
 .filter-choice .ckrow{margin:0;padding:9px;border:1px solid var(--border);border-radius:8px;background:rgba(20,25,39,.55)}
 .filter-choice .ckrow.active{border-color:var(--accent);background:rgba(66,133,244,.12)}
-.model-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:8px 0 10px}
+.model-grid{display:grid;grid-template-columns:1fr;gap:8px;margin:8px 0 10px}
 .model-option{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(20,25,39,.55)}
 .model-option label{display:flex;align-items:center;gap:6px;color:var(--txt);margin:0;font-size:12px}
-@media(max-width:900px){#layout{height:auto;overflow:visible;display:block}#sidebar{width:auto;min-width:0;height:auto}#results{height:auto}.model-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:900px){#layout{height:auto;overflow:visible;display:block}#sidebar{width:auto;min-width:0;height:auto}#results{height:auto}.model-grid{grid-template-columns:1fr}}
 
 /* Light analytical workspace — intentionally distinct from the reference layout. */
 :root{--bg:#f4f7fb;--panel:#ffffff;--panel2:#eef3f9;--border:#d8e1ec;--accent:#3559d6;--green:#0f9f88;--warn:#d94b62;--amber:#b7791f;--txt:#17243b;--txt2:#63738d;--txt3:#8b9ab0;--shadow:0 16px 40px rgba(31,55,88,.10)}
@@ -191,10 +191,10 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
 <body>
 
 <div id="topbar">
-  <h1>Bond Stress Studio</h1>
-  <span class="ver">v1.0 · web</span>
+  <h1>Bond Stress Prediction Tool</h1>
+  <span class="ver">v2.0 · web</span>
   <span id="status-chip">Starting...</span>
-  <span class="author">tau_max - Ahmet Simsek</span>
+  <span class="author">τ<sub>max</sub> Prediction · Ahmet Şimşek</span>
 </div>
 
 <div id="layout">
@@ -297,11 +297,9 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
         <button class="btn btn-blue btn-sm act" id="btn-plot" disabled>Draw chart</button>
       </div>
       <div class="plot-ctrl">
-        <div class="ck"><input type="checkbox" id="ck-logx"><span>log X</span></div>
-        <div class="ck"><input type="checkbox" id="ck-logy"><span>log Y</span></div>
-        <div class="fld"><label>X min</label><input type="text" id="in-xmin"></div>
+        <div class="fld"><label>X min</label><input type="text" id="in-xmin" value="0"></div>
         <div class="fld"><label>X max</label><input type="text" id="in-xmax"></div>
-        <div class="fld"><label>Y min</label><input type="text" id="in-ymin"></div>
+        <div class="fld"><label>Y min</label><input type="text" id="in-ymin" value="0"></div>
         <div class="fld"><label>Y max</label><input type="text" id="in-ymax"></div>
         <span class="mini" style="padding-bottom:5px">Zoom and pan are available directly in the chart.</span>
       </div>
@@ -408,6 +406,8 @@ def resolve_schema(df):
     if target is None:
         raise RuntimeError("The workbook must contain at least one numeric input column and one numeric target column.")
     features = [c for c in FEATURE_COLS if c in df.columns]
+    if features and "bar_type_deformed" in df.columns:
+        features.append("bar_type_deformed")
     if not features:
         features = [c for c in numeric if c != target]
     ACTIVE_FEATURE_COLS = features
@@ -587,6 +587,11 @@ def load_data(arg):
         for mm, dbcol in [("embedment_length_mm", "embedment_length_db"), ("concrete_cover_mm", "concrete_cover_db")]:
             if mm in DF_RAW.columns and dbcol not in DF_RAW.columns:
                 DF_RAW[dbcol] = pd.to_numeric(DF_RAW[mm], errors="coerce") / db.replace(0, np.nan)
+    # Encode bar_type as a numeric feature (deformed=1, plain=0) when present.
+    if "bar_type" in DF_RAW.columns and "bar_type_deformed" not in DF_RAW.columns:
+        bt = DF_RAW["bar_type"].astype(str).str.lower().str.strip()
+        DF_RAW["bar_type_deformed"] = np.where(bt.str.contains("deform"), 1.0,
+                                        np.where(bt.str.contains("plain"), 0.0, np.nan))
     DF = DF_RAW.copy()
     features, target = resolve_schema(DF_RAW)
     numeric = [c for c in DF_RAW.columns
@@ -1018,6 +1023,20 @@ function setupModernControls(){
   [$("ck-rf"),$("ck-xgb"),$("ck-svr")].forEach(c=>{const row=c.closest(".ckrow"); row.className="model-option"; grid.appendChild(row);});
   trainSec.insertBefore(grid,$("in-iter").closest(".row4"));
   const surface=document.createElement("option"); surface.value="surface3d"; surface.textContent="3D parameter surface"; $("sel-plot-kind").appendChild(surface);
+  $("sel-plot-kind").addEventListener("change", syncPlotControls);
+  syncPlotControls();
+}
+
+// X/Y variable secicileri yalniz onlari kullanan grafiklerde gorunur:
+// "Data scatter" (veri kolonlari) ve "3D parameter surface" (iki girdi ozelligi).
+function syncPlotControls(){
+  const kind = $("sel-plot-kind").value;
+  const show = (kind === "scatter" || kind === "surface3d");
+  [$("sel-free-x"), $("sel-free-y")].forEach(s => {
+    if (!s) return;
+    const f = s.closest(".fld");
+    if (f) f.style.display = show ? "" : "none";
+  });
 }
 
 /* ── 1: veri yükleme ── */
@@ -1033,14 +1052,27 @@ function renderPredictionFields(cols){
   let grid = section.querySelector(".prediction-fields");
   if (!grid){ grid = document.createElement("div"); grid.className = "row2 prediction-fields"; section.insertBefore(grid, section.querySelector(".row2")); }
   grid.innerHTML = "";
-  const labels = {bar_diameter_mm:"Bar diameter (mm)", nominal_yield_strength_mpa:"Nominal yield strength (MPa)", concrete_strength_mpa:"Concrete strength fc (MPa)", embedment_length_db:"Embedment length (mm)", concrete_cover_db:"Concrete cover (mm)", transverse_reinforcement:"Transverse reinforcement (1/0)", transverse_reinforcement_mm:"Stirrup spacing (mm)", transverse_reinforcement_bar_diameter_mm:"Stirrup diameter (mm)"};
-  cols.forEach(c => { const wrap=document.createElement("div"), lab=document.createElement("label"), inp=document.createElement("input"); lab.textContent=labels[c] || c; inp.type="text"; inp.className="pin"; inp.dataset.col=(c === "embedment_length_db" ? "embedment_length_mm" : (c === "concrete_cover_db" ? "concrete_cover_mm" : c)); wrap.append(lab,inp); grid.appendChild(wrap); });
+  const labels = {bar_diameter_mm:"Bar diameter (mm)", nominal_yield_strength_mpa:"Nominal yield strength (MPa)", concrete_strength_mpa:"Concrete strength fc (MPa)", embedment_length_db:"Embedment length (mm)", concrete_cover_db:"Concrete cover (mm)", transverse_reinforcement:"Transverse reinforcement (1/0)", transverse_reinforcement_mm:"Stirrup spacing (mm)", transverse_reinforcement_bar_diameter_mm:"Stirrup diameter (mm)", bar_type_deformed:"Bar type"};
+  cols.forEach(c => {
+    const wrap=document.createElement("div"), lab=document.createElement("label");
+    lab.textContent=labels[c] || c;
+    let inp;
+    if (c === "bar_type_deformed"){
+      inp=document.createElement("select");
+      [["","—"],["1","Deformed"],["0","Plain"]].forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;inp.appendChild(o);});
+    } else {
+      inp=document.createElement("input"); inp.type="text";
+    }
+    inp.className="pin";
+    inp.dataset.col=(c === "embedment_length_db" ? "embedment_length_mm" : (c === "concrete_cover_db" ? "concrete_cover_mm" : c));
+    wrap.append(lab,inp); grid.appendChild(wrap);
+  });
 }
 
 function applyEnglishUi(){
-  $("topbar").querySelector("h1").textContent="Bond Stress Studio";
+  $("topbar").querySelector("h1").textContent="Bond Stress Prediction Tool";
   $("topbar").querySelector(".ver").textContent="v2.0 · analytical workspace";
-  $("topbar").querySelector(".author").innerHTML="τ<sub>max</sub> · Ahmet Şimşek";
+  $("topbar").querySelector(".author").innerHTML="τ<sub>max</sub> Prediction · Ahmet Şimşek";
   $("status-chip").textContent="Starting analytical engine…";
   $("boot-msg").innerHTML="Preparing the analytical engine…<br><span style='font-size:11px'>The first visit may take a little longer while the browser caches the scientific runtime.</span>";
   document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 · Data","2 · Outlier filter","3 · Model training","4 · Prediction"][i]||el.textContent);
@@ -1063,8 +1095,6 @@ function applyEnglishUi(){
   $("card-plot").querySelector(".mini").textContent="Zoom and pan are available directly in the chart.";
   $("card-log").querySelector("h2").textContent="Terminal";
   $("btn-default")?.remove(); $("sel-fcpow")?.closest(".row2")?.querySelector("div:last-child")?.remove();
-  $("topbar").querySelector(".ver").textContent="v2.0 - analytical workspace";
-  $("topbar").querySelector(".author").textContent="tau_max - Ahmet Simsek";
   $("status-chip").textContent="Starting analytical engine...";
   $("boot-msg").innerHTML="Preparing the analytical engine...<br><span style='font-size:11px'>The first visit may take a little longer while the browser caches the scientific runtime.</span>";
   document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 - Data","2 - Outlier filter","3 - Model training","4 - Prediction"][i]||el.textContent);
@@ -1112,16 +1142,6 @@ async function loadSheet(){
     setStatus("Data ready — filtering and training available", "ready");
   } catch(err){ logErr(err); setStatus("Data loading failed", "err"); }
 }
-
-if ($("btn-default")) $("btn-default").addEventListener("click", async () => {
-  setStatus("filtered_data.xlsx indiriliyor...", "load");
-  try{
-    const resp = await fetch("filtered_data.xlsx");
-    if (!resp.ok) throw new Error("filtered_data.xlsx bulunamadı (" + resp.status + ")");
-    const buf = await resp.arrayBuffer();
-    await sendFile(buf, "filtered_data.xlsx (varsayılan)");
-  } catch(err){ logErr(err); setStatus("hata", "err"); }
-});
 
 async function processSelectedFile(f){
   if (!f) return;
@@ -1232,7 +1252,7 @@ $("btn-train").addEventListener("click", async () => {
     await call("train", {
       models,
       fc_power: 1.0,
-      n_iter: Math.max(5, parseInt($("in-iter").value) || 15),
+      n_iter: Math.max(1, parseInt($("in-iter").value) || 15),
       cv: Math.max(2, parseInt($("in-cv").value) || 3),
       test_size: parseNum($("in-test").value) || 0.2,
       rs: parseInt($("in-seed").value) || 42});
@@ -1254,14 +1274,31 @@ function fillFreeSelects(cols){
   if (fc) fc.value = "(none)";
 }
 
-function axisOpts(lay){
-  if ($("ck-logx").checked) lay.xaxis.type = "log";
-  if ($("ck-logy").checked) lay.yaxis.type = "log";
-  const x0 = parseFloat($("in-xmin").value), x1 = parseFloat($("in-xmax").value);
-  const y0 = parseFloat($("in-ymin").value), y1 = parseFloat($("in-ymax").value);
-  const rng = (a, b, log) => log ? [Math.log10(a), Math.log10(b)] : [a, b];
-  if (!isNaN(x0) && !isNaN(x1)) lay.xaxis.range = rng(x0, x1, $("ck-logx").checked);
-  if (!isNaN(y0) && !isNaN(y1)) lay.yaxis.range = rng(y0, y1, $("ck-logy").checked);
+function axisOpts(lay, traces, kind){
+  // "0" varsayilan min degeri yalniz sifirdan baslamasi anlamli grafiklere uygulanir;
+  // artik (negatif) ve onem (kategorik/negatif) grafiklerinde oto olcek korunur.
+  const zeroKinds = {parity:1, scatter:1};
+  const dataSpan = (key) => {
+    let lo = Infinity, hi = -Infinity;
+    (traces || []).forEach(t => (Array.isArray(t[key]) ? t[key] : []).forEach(v => {
+      if (typeof v === "number" && isFinite(v)){ if (v < lo) lo = v; if (v > hi) hi = v; }
+    }));
+    return lo <= hi ? [lo, hi] : null;
+  };
+  const applyAxis = (ax, key, rawMin, rawMax) => {
+    if (!ax) return;
+    let a = parseFloat(rawMin), b = parseFloat(rawMax);
+    if (!zeroKinds[kind] && String(rawMin).trim() === "0") a = NaN;
+    if (isNaN(a) && isNaN(b)) return;
+    const s = dataSpan(key);
+    if ((isNaN(a) || isNaN(b)) && !s) return;   // kategorik eksen vb. — dokunma
+    if (isNaN(b)) b = s[1] + (s[1] - Math.min(a, s[0])) * 0.05;
+    if (isNaN(a)) a = Math.min(0, s[0]);
+    if (!(a < b)) return;
+    ax.range = [a, b];
+  };
+  applyAxis(lay.xaxis, "x", $("in-xmin").value, $("in-xmax").value);
+  applyAxis(lay.yaxis, "y", $("in-ymin").value, $("in-ymax").value);
 }
 
 function baseLayout(title, xl, yl){
@@ -1336,7 +1373,7 @@ $("btn-plot").addEventListener("click", async () => {
       lay = baseLayout("Data scatter (n=" + d.n + ")", d.xlabel, d.ylabel);
       lay.showlegend = false;
     }
-    axisOpts(lay);
+    if (kind !== "surface3d") axisOpts(lay, traces, kind);
     Plotly.newPlot("plot-div", traces, lay, PLOT_CFG);
   } catch(err){ logErr(err); }
   btn.disabled = false; btn.textContent = "Draw chart";

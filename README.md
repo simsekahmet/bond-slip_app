@@ -1,4 +1,4 @@
-# Bond Stress Studio — τ_max Tahmin Aracı (Web)
+# Bond Stress Prediction Tool — τ_max (Web)
 
 Maksimum aderans dayanımı (τ_max) tahmini için tarayıcıda çalışan uçtan uca araç.
 Tüm hesaplama **tarayıcıda** yapılır (Pyodide / WebAssembly Python) — sunucu yoktur,
@@ -8,7 +8,7 @@ veriniz hiçbir yere gönderilmez.
 
 ## Özellikler
 
-1. **Veri** — Excel yükle (varsayılan: `filtered_data.xlsx`), sayfa seçimi
+1. **Veri** — kendi CSV/Excel dosyanı yükle (sürükle-bırak desteklenir), sayfa seçimi
 2. **Aykırı değer filtresi** — Grubbs testi / IQR kuralı, kolon seçimli
 3. **Eğitim** — Random Forest / XGBoost / SVR + Bayesian hiperparametre araması
    (scikit-optimize), senaryo filtresi, fc üssü seçeneği
@@ -34,8 +34,10 @@ python -m http.server 8000
 | Dosya | Açıklama |
 |---|---|
 | `index.html` | Uygulamanın tamamı (arayüz + Pyodide çekirdeği, tek dosya) |
-| `filtered_data.xlsx` | Varsayılan veri seti (Grubbs-filtreli, 1120 satır) |
 | `legacy/` | Eski tkinter masaüstü sürümü (referans) |
+
+Not: Uygulama veri içermez — kullanıcı kendi CSV/Excel dosyasını yükler ve tüm
+işlem tarayıcıda kalır.
 
 ## Not
 
