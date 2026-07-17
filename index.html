@@ -286,7 +286,10 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
           <select id="sel-plot-kind">
             <option value="parity">Observed vs predicted</option>
             <option value="bo">Search convergence</option>
+            <option value="bo3d">3D search path (BO)</option>
             <option value="importance">Permutation importance</option>
+            <option value="shap_beeswarm">SHAP summary</option>
+            <option value="shap_bar">SHAP importance</option>
             <option value="residual">Residuals</option>
             <option value="scatter">Data scatter</option>
           </select>
@@ -574,7 +577,8 @@ def sheets_from_file(arg):
 
 
 def load_data(arg):
-    global DF_RAW, DF
+    global DF_RAW, DF, SHAP_CACHE
+    SHAP_CACHE = None
     m = json.loads(arg)
     is_csv = m.get("file_type") == "csv" or str(m.get("file_name", "")).lower().endswith(".csv")
     if m.get("records") is not None:
@@ -611,7 +615,8 @@ def load_data(arg):
 
 
 def apply_filters(arg):
-    global DF
+    global DF, SHAP_CACHE
+    SHAP_CACHE = None
     m = json.loads(arg)
     if DF_RAW is None:
         raise RuntimeError("Upload data first.")
@@ -642,7 +647,8 @@ def apply_filters(arg):
 
 
 def reset_filter(arg):
-    global DF
+    global DF, SHAP_CACHE
+    SHAP_CACHE = None
     if DF_RAW is None:
         raise RuntimeError("Upload data first.")
     DF = DF_RAW.copy()
@@ -696,6 +702,18 @@ def train(arg):
         r2 = float(r2_score(yte, yp))
         rmse = float(np.sqrt(mean_squared_error(yte, yp)))
         hist = [float(v) for v in search.cv_results_["mean_test_score"]]
+        # Deneme bazinda parametre gecmisi (3B BO gezinme grafigi icin)
+        bo_params = {}
+        for kk, vals in search.cv_results_.items():
+            if kk.startswith("param_"):
+                pname = kk.replace("param_model__", "")
+                clean = []
+                for v in vals:
+                    try:
+                        clean.append(float(v))
+                    except Exception:
+                        clean.append(None)
+                bo_params[pname] = clean
         best_params = {}
         for kk, vv in search.best_params_.items():
             kk = kk.replace("model__", "")
@@ -703,6 +721,7 @@ def train(arg):
                 vv = vv.item()
             best_params[kk] = round(vv, 5) if isinstance(vv, float) else vv
         RESULTS[name] = dict(estimator=search.best_estimator_, bo_history=hist,
+                             bo_params=bo_params,
                              cv_r2=float(search.best_score_), test_r2=r2,
                              test_rmse=rmse, X_test=Xte, y_test=yte, y_pred=yp,
                              best_params=best_params,
@@ -738,6 +757,8 @@ def plot_data(arg):
             out["c"] = _num_list(pd.to_numeric(DF[cc], errors="coerce"))
             out["clabel"] = cc
         return json.dumps(out)
+    if kind in ("shap_beeswarm", "shap_bar"):
+        return _shap_payload(kind)
     name = m["model"]
     if name not in RESULTS:
         raise RuntimeError("Train a model first.")
@@ -772,6 +793,31 @@ def plot_data(arg):
             "y": [float(v) for v in res],
             "title": "%s — artik dagilimi (ort=%.2f, std=%.2f MPa)" % (
                 name, float(res.mean()), float(res.std()))})
+    if kind == "bo3d":
+        # 07 defteri hucre 3 ile ayni fikir: parametre1 × parametre2 × CV R²,
+        # denemeler sirayla cizgiyle bagli.
+        axes = {"XGBoost": ("learning_rate", "max_depth"),
+                "Random Forest": ("n_estimators", "max_depth"),
+                "SVR": ("C", "gamma")}
+        ax = axes.get(name)
+        if not ax:
+            raise RuntimeError("3D BO path is not defined for this model.")
+        bp = r.get("bo_params") or {}
+        cx, cy = bp.get(ax[0]), bp.get(ax[1])
+        if not cx or not cy:
+            raise RuntimeError("Search history is missing; retrain the model first.")
+        xs = [float(v) for v in cx]
+        ys = [float(v) for v in cy]
+        xlab, ylab = ax
+        if name == "SVR":
+            xs = [float(np.log10(max(v, 1e-12))) for v in xs]
+            ys = [float(np.log10(max(v, 1e-12))) for v in ys]
+            xlab, ylab = "log10(%s)" % xlab, "log10(%s)" % ylab
+        z = [float(v) for v in r["bo_history"]]
+        return json.dumps({"x": xs, "y": ys, "z": z,
+                           "iter": list(range(1, len(z) + 1)),
+                           "xlabel": xlab, "ylabel": ylab,
+                           "title": "%s — search path: %s × %s × CV R²" % (name, ax[0], ax[1])})
     if kind == "surface3d":
         xc, yc = m.get("x"), m.get("y")
         if xc not in ACTIVE_FEATURE_COLS or yc not in ACTIVE_FEATURE_COLS or xc == yc:
@@ -792,6 +838,64 @@ def plot_data(arg):
         z = np.asarray(r["estimator"].predict(Xg.values), dtype=float).reshape(len(ys), len(xs))
         return json.dumps({"x": xs.tolist(), "y": ys.tolist(), "z": z.tolist(), "xlabel": xc, "ylabel": yc, "title": "%s — 3D parameter surface" % name})
     raise ValueError(kind)
+
+
+SHAP_CACHE = None
+
+
+def _shap_payload(kind):
+    """07 defteri hucre 4 karsiligi: sabit parametreli XGBoost egitilir,
+    SHAP degerleri XGBoost'un yerlesik TreeSHAP'i ile hesaplanir
+    (pred_contribs=True; shap kutuphanesiyle ayni algoritma)."""
+    global SHAP_CACHE
+    if DF is None:
+        raise RuntimeError("Upload data first.")
+    try:
+        from xgboost import XGBRegressor as _XGB, DMatrix as _DM
+    except Exception:
+        raise RuntimeError("SHAP needs the XGBoost package, which could not be loaded in this browser.")
+    if SHAP_CACHE is None:
+        d = DF.copy()
+        y = pd.to_numeric(d[ACTIVE_TARGET_COL], errors="coerce")
+        keep = y.notna() & (y >= 0)
+        X = d.loc[keep, ACTIVE_FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
+        if TR_FLAG in X.columns:
+            X = apply_tr_logic(X)
+        y = y[keep].astype(float)
+        if len(y) < 30:
+            raise RuntimeError("Not enough valid rows for SHAP analysis.")
+        Xtr, Xte, ytr, yte = train_test_split(X.values, y.values,
+                                              test_size=0.20, random_state=42)
+        model = _XGB(objective="reg:squarederror", n_estimators=400,
+                     learning_rate=0.05, max_depth=4, subsample=0.8,
+                     colsample_bytree=0.9, reg_lambda=1.0,
+                     random_state=42, n_jobs=1)
+        model.fit(Xtr, ytr)
+        r2 = float(r2_score(yte, model.predict(Xte)))
+        contrib = model.get_booster().predict(_DM(Xte), pred_contribs=True)
+        sv = np.asarray(contrib)[:, :-1]      # son kolon = bias terimi
+        SHAP_CACHE = (Xte, sv, r2, list(ACTIVE_FEATURE_COLS))
+    Xte, sv, r2, feats = SHAP_CACHE
+    mean_abs = np.abs(sv).mean(axis=0)
+    order = np.argsort(mean_abs)[::-1]
+    if kind == "shap_bar":
+        o2 = order[::-1]                       # yatay barda en onemli en ustte
+        return json.dumps({"features": [feats[i] for i in o2],
+                           "mean": [float(mean_abs[i]) for i in o2],
+                           "title": "SHAP importance — XGBoost (Test R²=%.3f)" % r2})
+    rows = []
+    for i in order:
+        col = Xte[:, i].astype(float)
+        fin = np.isfinite(col)
+        lo = float(col[fin].min()) if fin.any() else 0.0
+        hi = float(col[fin].max()) if fin.any() else 1.0
+        span = (hi - lo) if hi > lo else 1.0
+        rows.append({"name": feats[i],
+                     "shap": [float(v) for v in sv[:, i]],
+                     "val": [(float((v - lo) / span) if np.isfinite(v) else 0.5)
+                             for v in col]})
+    return json.dumps({"rows": rows, "n": int(sv.shape[0]),
+                       "title": "SHAP summary — XGBoost (Test R²=%.3f, n=%d)" % (r2, sv.shape[0])})
 
 
 def predict_one(arg):
@@ -882,6 +986,10 @@ self.onmessage = async (e) => {
   }
   try {
     if (!pyodide) throw new Error("Python ortamı henüz hazır değil.");
+    if (m.cmd === "plot" && typeof m.kind === "string" && m.kind.indexOf("shap") === 0){
+      // SHAP, XGBoost'un yerlesik TreeSHAP'ini kullanir — paketi gerektiginde indir.
+      try { await pyodide.loadPackage("xgboost"); } catch(e){}
+    }
     if (m.buffer) pyodide.FS.writeFile("/data.xlsx", new Uint8Array(m.buffer));
     pyodide.globals.set("_arg", JSON.stringify(m));
     const out = pyodide.runPython(HANDLERS[m.cmd] + "(_arg)");
@@ -1322,6 +1430,8 @@ $("btn-plot").addEventListener("click", async () => {
     const req = {kind};
     if (kind === "scatter"){
       req.x = $("sel-free-x").value; req.y = $("sel-free-y").value;
+    } else if (kind.indexOf("shap") === 0){
+      // SHAP kendi XGBoost'unu egitir; secili modele ihtiyac duymaz.
     } else {
       req.model = $("sel-plot-model").value;
       if (kind === "surface3d") { req.x=$("sel-free-x").value; req.y=$("sel-free-y").value; }
@@ -1361,6 +1471,39 @@ $("btn-plot").addEventListener("click", async () => {
     } else if (kind === "surface3d") {
       traces = [{x:d.x,y:d.y,z:d.z,type:"surface",colorscale:"Viridis",colorbar:{title:"τmax (MPa)"}}];
       lay = {title:{text:d.title,font:{size:13}},paper_bgcolor:"#1e2535",plot_bgcolor:"#141927",font:{color:"#e8edf5"},scene:{xaxis:{title:d.xlabel},yaxis:{title:d.ylabel},zaxis:{title:"τmax (MPa)"}},margin:{t:48,r:20,b:20,l:20}};
+    } else if (kind === "bo3d") {
+      // Denemeler sirayla cizgiyle bagli; renk = deneme sirasi (07 defteri hucre 3 gibi)
+      traces = [{x:d.x, y:d.y, z:d.z, type:"scatter3d", mode:"lines+markers",
+                 marker:{size:4.5, color:d.iter, colorscale:"Viridis",
+                         colorbar:{title:{text:"trial"}}},
+                 line:{color:"#8a97b0", width:2}}];
+      lay = {title:{text:d.title,font:{size:13}}, paper_bgcolor:"#1e2535",
+             font:{color:"#e8edf5"},
+             scene:{xaxis:{title:d.xlabel}, yaxis:{title:d.ylabel}, zaxis:{title:"CV R²"}},
+             margin:{t:48,r:20,b:20,l:20}, showlegend:false};
+    } else if (kind === "shap_beeswarm") {
+      traces = d.rows.map((row, i) => ({
+        x: row.shap,
+        y: row.shap.map(() => i + (Math.random() - 0.5) * 0.55),
+        mode: "markers", type: "scatter", name: row.name,
+        hovertemplate: row.name + "<br>SHAP: %{x:.3f} MPa<extra></extra>",
+        marker: {size: 5, opacity: 0.75, color: row.val, colorscale: "Bluered",
+                 cmin: 0, cmax: 1,
+                 colorbar: i === 0 ? {title:{text:"feature value"}, tickvals:[0,1],
+                                     ticktext:["low","high"]} : undefined}
+      }));
+      traces.push({x:[0,0], y:[-0.6, d.rows.length - 0.4], mode:"lines",
+                   line:{color:"#8a97b0", width:1, dash:"dot"}, hoverinfo:"skip"});
+      lay = baseLayout(d.title, "SHAP value (MPa contribution)", "");
+      lay.yaxis.tickvals = d.rows.map((_, i) => i);
+      lay.yaxis.ticktext = d.rows.map(r => r.name);
+      lay.yaxis.autorange = "reversed";
+      lay.margin.l = 250; lay.showlegend = false;
+    } else if (kind === "shap_bar") {
+      traces = [{x: d.mean, y: d.features, type: "bar", orientation: "h",
+                 marker: {color: "#4285f4"}}];
+      lay = baseLayout(d.title, "mean |SHAP| (MPa)", "");
+      lay.margin.l = 250; lay.showlegend = false;
     } else { // scatter
       const t = {x: d.x, y: d.y, mode: "markers", type: "scatter", name: "veri",
                  marker: {size: 6, opacity: 0.65, color: "#34c77b"}};
@@ -1373,7 +1516,7 @@ $("btn-plot").addEventListener("click", async () => {
       lay = baseLayout("Data scatter (n=" + d.n + ")", d.xlabel, d.ylabel);
       lay.showlegend = false;
     }
-    if (kind !== "surface3d") axisOpts(lay, traces, kind);
+    if (kind !== "surface3d" && kind !== "bo3d") axisOpts(lay, traces, kind);
     Plotly.newPlot("plot-div", traces, lay, PLOT_CFG);
   } catch(err){ logErr(err); }
   btn.disabled = false; btn.textContent = "Draw chart";
