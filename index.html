@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bond Stress Studio — τmax Tahmin Aracı</title>
+<title>Bond Stress Studio - tau_max Prediction</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow:wght@400;500;600;700&display=swap');
 :root{
@@ -192,8 +193,8 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
 <div id="topbar">
   <h1>Bond Stress Studio</h1>
   <span class="ver">v1.0 · web</span>
-  <span id="status-chip">başlatılıyor...</span>
-  <span class="author">τ<sub>max</sub> tahmini · Ahmet Şimşek — MSc Tez</span>
+  <span id="status-chip">Starting...</span>
+  <span class="author">tau_max - Ahmet Simsek</span>
 </div>
 
 <div id="layout">
@@ -201,64 +202,64 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
   <div id="sidebar">
 
     <div class="sec">
-      <div class="sec-title">1 · Veri</div>
+      <div class="sec-title">1 - Data</div>
       <label class="upload-zone" for="file-input">
-        <div class="uz-text">Kendi Excel dosyanı seç / sürükle (.xlsx)</div>
+        <div class="uz-text">Click to browse or drop a CSV / Excel file</div>
         <div class="uz-name" id="file-name">—</div>
         <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display:none" disabled>
       </label>
       <div class="row2">
         <div><label>Sayfa</label><select id="sheet-sel"></select></div>
-        <div style="display:flex;align-items:flex-end"><button class="btn btn-blue btn-sm act" id="btn-load" disabled style="width:100%">Yükle</button></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-blue btn-sm act" id="btn-load" disabled style="width:100%">Load data</button></div>
       </div>
-      <div class="mini" id="data-summary">Veri yüklenmedi.</div>
+      <div class="mini" id="data-summary">No data loaded.</div>
     </div>
 
     <div class="sec">
-      <div class="sec-title">2 · Aykırı Değer Filtresi</div>
+      <div class="sec-title">2 - Outlier filter</div>
       <div class="ckrow"><input type="checkbox" id="ck-grubbs" checked><span class="lbl">Grubbs testi &nbsp;α =</span><input type="text" id="in-alpha" value="0.05"></div>
-      <div class="ckrow"><input type="checkbox" id="ck-iqr"><span class="lbl">IQR kuralı &nbsp;&nbsp;&nbsp;&nbsp;k =</span><input type="text" id="in-k" value="1.5"></div>
-      <label style="margin-top:5px">Filtre uygulanacak kolonlar</label>
-      <div id="col-list"><span class="mini">önce veri yükleyin</span></div>
+      <div class="ckrow"><input type="checkbox" id="ck-iqr"><span class="lbl">IQR rule - k =</span><input type="text" id="in-k" value="1.5"></div>
+      <label style="margin-top:5px">Filter columns</label>
+      <div id="col-list"><span class="mini">Upload data first</span></div>
       <div class="btn-row">
-        <button class="btn btn-blue btn-sm act" id="btn-filter" disabled>Filtreyi Uygula</button>
-        <button class="btn btn-gray btn-sm act" id="btn-reset" disabled>Sıfırla (ham veri)</button>
+        <button class="btn btn-blue btn-sm act" id="btn-filter" disabled>Apply filter</button>
+        <button class="btn btn-gray btn-sm act" id="btn-reset" disabled>Reset data</button>
       </div>
     </div>
 
     <div class="sec">
-      <div class="sec-title">3 · Eğitim</div>
+      <div class="sec-title">3 - Model training</div>
       <div class="ckrow"><input type="checkbox" id="ck-rf" checked><span class="lbl">Random Forest</span></div>
       <div class="ckrow"><input type="checkbox" id="ck-xgb" checked><span class="lbl">XGBoost</span></div>
       <div class="ckrow"><input type="checkbox" id="ck-svr"><span class="lbl">SVR</span></div>
       <div class="row4">
-        <div><label id="lbl-iter">BO deneme</label><input type="text" id="in-iter" value="15"></div>
-        <div><label>CV katı</label><input type="text" id="in-cv" value="3"></div>
-        <div><label>Test oranı</label><input type="text" id="in-test" value="0.20"></div>
-        <div><label>Tohum</label><input type="text" id="in-seed" value="42"></div>
+        <div><label id="lbl-iter">Search trials</label><input type="text" id="in-iter" value="15"></div>
+        <div><label>CV folds</label><input type="text" id="in-cv" value="3"></div>
+        <div><label>Test ratio</label><input type="text" id="in-test" value="0.20"></div>
+        <div><label>Random seed</label><input type="text" id="in-seed" value="42"></div>
       </div>
-      <button class="btn btn-blue act" id="btn-train" disabled style="width:100%">EĞİT</button>
-      <div class="mini">Not: eğitim tarayıcıda çalışır; model sayısı ve deneme adedine göre birkaç dakika sürebilir. İlerleme sağdaki günlükte akar.</div>
+      <button class="btn btn-blue act" id="btn-train" disabled style="width:100%">Train models</button>
+      <div class="mini">Training runs locally in your browser. Progress is shown in Terminal.</div>
     </div>
 
     <div class="sec">
-      <div class="sec-title">4 · Tahmin (tek numune)</div>
+      <div class="sec-title">4 - Prediction</div>
       <div class="row2">
-        <div><label>Donatı çapı (mm)</label><input type="text" class="pin" data-col="bar_diameter_mm"></div>
-        <div><label>Akma dayanımı (MPa)</label><input type="text" class="pin" data-col="nominal_yield_strength_mpa"></div>
-        <div><label>Beton dayanımı fc (MPa)</label><input type="text" class="pin" data-col="concrete_strength_mpa"></div>
-        <div><label>Gömme boyu (db katı)</label><input type="text" class="pin" data-col="embedment_length_db"></div>
-        <div><label>Paspayı (db katı)</label><input type="text" class="pin" data-col="concrete_cover_db"></div>
-        <div><label>Enine donatı? (1/0)</label><input type="text" class="pin" data-col="transverse_reinforcement"></div>
-        <div><label>Etriye aralığı (mm)</label><input type="text" class="pin" data-col="transverse_reinforcement_mm"></div>
-        <div><label>Etriye çapı (mm)</label><input type="text" class="pin" data-col="transverse_reinforcement_bar_diameter_mm"></div>
+        <div><label>Bar diameter (mm)</label><input type="text" class="pin" data-col="bar_diameter_mm"></div>
+        <div><label>Nominal yield strength (MPa)</label><input type="text" class="pin" data-col="nominal_yield_strength_mpa"></div>
+        <div><label>Concrete strength fc (MPa)</label><input type="text" class="pin" data-col="concrete_strength_mpa"></div>
+        <div><label>Embedment length (mm)</label><input type="text" class="pin" data-col="embedment_length_db"></div>
+        <div><label>Concrete cover (mm)</label><input type="text" class="pin" data-col="concrete_cover_db"></div>
+        <div><label>Transverse reinforcement (1/0)</label><input type="text" class="pin" data-col="transverse_reinforcement"></div>
+        <div><label>Stirrup spacing (mm)</label><input type="text" class="pin" data-col="transverse_reinforcement_mm"></div>
+        <div><label>Stirrup diameter (mm)</label><input type="text" class="pin" data-col="transverse_reinforcement_bar_diameter_mm"></div>
       </div>
       <div class="row2">
         <div><label>Model</label><select id="sel-pred-model"></select></div>
-        <div style="display:flex;align-items:flex-end"><button class="btn btn-green act" id="btn-predict" disabled style="width:100%">TAHMİN ET</button></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-green act" id="btn-predict" disabled style="width:100%">Predict</button></div>
       </div>
       <div id="pred-out">—</div>
-      <div class="mini">Boş bırakılan özellik "ölçülmemiş" olarak modele bildirilir (medyanla doldurulmaz). Enine donatı 0/boş ise etriye aralığı/çapı otomatik yok sayılır.</div>
+      <div class="mini">Enter embedment length and concrete cover in mm. They are normalized internally by bar diameter.</div>
     </div>
 
   </div>
@@ -267,35 +268,33 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
   <div id="results">
     <div id="boot">
       <div class="spinner"></div>
-      <div class="msg" id="boot-msg">Python çalışma ortamı (Pyodide/WebAssembly) indiriliyor...<br>
-      İlk açılışta 15–40 saniye sürebilir; sonraki açılışlar tarayıcı önbelleğinden çok daha hızlıdır.</div>
+      <div class="msg" id="boot-msg">Preparing the analytical engine...</div>
     </div>
 
     <div class="card" id="card-results" style="display:none">
-      <h2>Model Sonuçları</h2>
+      <h2>Model results</h2>
       <table>
-        <thead><tr><th>Model</th><th>CV R² (en iyi)</th><th>Test R²</th><th>Test RMSE (MPa)</th><th>n eğitim</th><th>n test</th></tr></thead>
+        <thead><tr><th>Model</th><th>Best CV R2</th><th>Test R2</th><th>Test RMSE (MPa)</th><th>Training n</th><th>Test n</th></tr></thead>
         <tbody id="res-body"></tbody>
       </table>
     </div>
 
     <div class="card" id="card-plot" style="display:none">
-      <h2>Grafikler</h2>
+      <h2>Charts</h2>
       <div class="plot-ctrl">
-        <div class="fld"><label>Grafik</label>
+        <div class="fld"><label>Chart</label>
           <select id="sel-plot-kind">
-            <option value="parity">Deneysel vs Tahmin (parite)</option>
-            <option value="bo">BO yakınsaması</option>
-            <option value="importance">Özellik önemi (permütasyon)</option>
-            <option value="residual">Artıklar (residual)</option>
-            <option value="scatter">Serbest saçılım (veri)</option>
+            <option value="parity">Observed vs predicted</option>
+            <option value="bo">Search convergence</option>
+            <option value="importance">Permutation importance</option>
+            <option value="residual">Residuals</option>
+            <option value="scatter">Data scatter</option>
           </select>
         </div>
         <div class="fld"><label>Model</label><select id="sel-plot-model"></select></div>
-        <div class="fld"><label>X (saçılım)</label><select id="sel-free-x"></select></div>
-        <div class="fld"><label>Y (saçılım)</label><select id="sel-free-y"></select></div>
-        <div class="fld"><label>Renk</label><select id="sel-free-c"></select></div>
-        <button class="btn btn-blue btn-sm act" id="btn-plot" disabled>ÇİZ</button>
+        <div class="fld"><label>X variable</label><select id="sel-free-x"></select></div>
+        <div class="fld"><label>Y variable</label><select id="sel-free-y"></select></div>
+        <button class="btn btn-blue btn-sm act" id="btn-plot" disabled>Draw chart</button>
       </div>
       <div class="plot-ctrl">
         <div class="ck"><input type="checkbox" id="ck-logx"><span>log X</span></div>
@@ -304,13 +303,13 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
         <div class="fld"><label>X max</label><input type="text" id="in-xmax"></div>
         <div class="fld"><label>Y min</label><input type="text" id="in-ymin"></div>
         <div class="fld"><label>Y max</label><input type="text" id="in-ymax"></div>
-        <span class="mini" style="padding-bottom:5px">(boş = otomatik; grafik üzerinde zoom/pan da yapılabilir)</span>
+        <span class="mini" style="padding-bottom:5px">Zoom and pan are available directly in the chart.</span>
       </div>
       <div id="plot-div"></div>
     </div>
 
     <div class="card" id="card-log" style="display:none">
-      <h2>Günlük</h2>
+      <h2>Terminal</h2>
       <div id="console"></div>
     </div>
   </div>
@@ -578,7 +577,10 @@ def load_data(arg):
     global DF_RAW, DF
     m = json.loads(arg)
     is_csv = m.get("file_type") == "csv" or str(m.get("file_name", "")).lower().endswith(".csv")
-    DF_RAW = pd.read_csv("/data.xlsx", sep=None, engine="python") if is_csv else pd.read_excel("/data.xlsx", sheet_name=m["sheet"])
+    if m.get("records") is not None:
+        DF_RAW = pd.DataFrame(m["records"])
+    else:
+        DF_RAW = pd.read_csv("/data.xlsx", sep=None, engine="python") if is_csv else pd.read_excel("/data.xlsx", sheet_name=m["sheet"])
     # Accept mm-based embedment/cover columns and normalize them internally by db.
     if "bar_diameter_mm" in DF_RAW.columns:
         db = pd.to_numeric(DF_RAW["bar_diameter_mm"], errors="coerce")
@@ -612,25 +614,25 @@ def apply_filters(arg):
     if not cols:
         raise RuntimeError("Select at least one column.")
     df = DF_RAW.copy()
-    report = ["Baslangic: %d satir" % len(df)]
+    report = ["Starting rows: %d" % len(df)]
     if m["grubbs"]:
         alpha = float(m["alpha"])
         bad, det = grubbs_outlier_rows(df, cols, alpha=alpha)
         df = df.drop(index=list(bad))
-        report.append("Grubbs (alpha=%g): %d satir elendi" % (alpha, len(bad)))
+        report.append("Grubbs (alpha=%g): %d rows removed" % (alpha, len(bad)))
         for col, n, gc in det:
             if n:
-                report.append("   %s: %d aykiri (G_crit=%.3f)" % (col, n, gc))
+                report.append("   %s: %d outliers (G_crit=%.3f)" % (col, n, gc))
     if m["iqr"]:
         k = float(m["k"])
         bad, det = iqr_outlier_rows(df, cols, k=k)
         df = df.drop(index=list(bad))
-        report.append("IQR (k=%g): %d satir elendi" % (k, len(bad)))
+        report.append("IQR (k=%g): %d rows removed" % (k, len(bad)))
         for col, n, lim in det:
             if n:
-                report.append("   %s: %d aykiri (sinir %.2f..%.2f)" % (col, n, lim[0], lim[1]))
+                report.append("   %s: %d outliers (limits %.2f..%.2f)" % (col, n, lim[0], lim[1]))
     DF = df.reset_index(drop=True)
-    report.append("Sonuc: %d satir (egitimde bu veri kullanilacak)" % len(DF))
+    report.append("Result: %d rows active for training" % len(DF))
     return json.dumps({"report": "\n".join(report), "n": int(len(DF))})
 
 
@@ -639,7 +641,7 @@ def reset_filter(arg):
     if DF_RAW is None:
         raise RuntimeError("Upload data first.")
     DF = DF_RAW.copy()
-    return json.dumps({"report": "Filtre sifirlandi; ham veri (%d satir) aktif." % len(DF),
+    return json.dumps({"report": "Filter reset; raw data (%d rows) active." % len(DF),
                        "n": int(len(DF))})
 
 
@@ -823,17 +825,18 @@ const HANDLERS = {
   predict: "predict_one",
 };
 
+function withTimeout(promise, ms, label){
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(label + " timed out after " + Math.round(ms/1000) + " seconds.")), ms))]);
+}
+
 async function init(){
   post({type:"status", text:"Pyodide (WebAssembly Python) indiriliyor..."});
   importScripts(PYODIDE_URL);
-  pyodide = await loadPyodide();
+  pyodide = await withTimeout(loadPyodide(), 120000, "Loading the analytical engine");
   post({type:"status", text:"Bilimsel paketler yükleniyor: numpy, pandas, scipy, scikit-learn..."});
-  await pyodide.loadPackage(["numpy","pandas","scipy","scikit-learn","micropip"]);
+  await withTimeout(pyodide.loadPackage(["numpy","pandas","scipy","scikit-learn","micropip"]), 180000, "Loading scientific packages");
   post({type:"status", text:"Core runtime ready..."});
   // XGBoost is optional and is not downloaded during the first visit.
-  const micropip = pyodide.pyimport("micropip");
-  post({type:"status", text:"Excel okuyucu (openpyxl) kuruluyor..."});
-  await micropip.install("openpyxl");
   post({type:"status", text:"Finalizing the workspace..."});
   try {
     // Optional Bayesian search is skipped at startup.
@@ -917,9 +920,9 @@ worker.onmessage = (e) => {
   if (m.type === "row"){ addResultRow(m.payload); return; }
   if (m.type === "ready"){ onReady(m.flags); return; }
   if (m.type === "fatal"){
-    setStatus("Python ortamı yüklenemedi", "err");
+    setStatus("Analytical engine failed to load", "err");
     $("boot-msg").innerHTML = "<span style='color:var(--warn)'>HATA: " + escapeHtml(m.text) +
-      "</span><br><br>İnternet bağlantınızı kontrol edip sayfayı yenileyin.";
+      "</span><br><br>Check your connection and reload the page.";
     return;
   }
   const p = pending.get(m.id);
@@ -931,6 +934,13 @@ worker.onmessage = (e) => {
 
 /* ── durum / günlük ── */
 function setStatus(text, cls){
+  const s = String(text);
+  if (/veri|dosya|yüklen|yuklen|okunuyor|indir/i.test(s)) text = "Loading data...";
+  else if (/eğitim|egitim|EĞİT|EGIT/i.test(s)) text = cls === "ready" ? "Training complete" : "Training in progress...";
+  else if (/hesaplanıyor|hesaplaniyor/i.test(s)) text = "Calculating chart...";
+  else if (/hata|error/i.test(s)) text = "Error";
+  else if (/Ready|hazır/i.test(s)) text = "Ready - upload a workbook";
+  else if (/Training in progress/i.test(s)) text = "Training in progress - see Terminal";
   const chip = $("status-chip");
   chip.textContent = text;
   chip.className = cls === "ready" ? "ready" : (cls === "err" ? "err" : "");
@@ -950,7 +960,7 @@ function parseNum(v){
   v = (v || "").trim().replace(",", ".");
   if (v === "") return null;
   const f = parseFloat(v);
-  if (isNaN(f)) throw new Error("Sayısal olmayan değer: '" + v + "'");
+  if (isNaN(f)) throw new Error("Invalid numeric value: '" + v + "'");
   return f;
 }
 
@@ -975,7 +985,7 @@ function onReady(flags){
   $("lbl-iter").textContent = "Search trials";
   if (!flags.has_skopt)
     logLine("Bayesian search is skipped at startup; randomized search will be used.", "ok");
-  logLine("✓ Python ortamı hazır. 'Varsayılan veriyi yükle' ile başlayabilirsiniz.", "ok");
+  logLine("Analytical engine ready. Upload a CSV or Excel file to begin.", "ok");
 }
 
 function setupModernControls(){
@@ -1001,6 +1011,7 @@ function setupModernControls(){
 let fileBuffer = null;
 let fileName = "";
 let fileType = "excel";
+let fileSheets = {};
 let dataLoaded = false;
 
 function renderPredictionFields(cols){
@@ -1034,7 +1045,7 @@ function applyEnglishUi(){
   $("ck-rf").closest(".sec").querySelectorAll(".row4 label").forEach((el,i)=>el.textContent=["Search trials","CV folds","Test ratio","Random seed"][i]);
   $("ck-rf").closest(".sec").querySelector(".mini").textContent="Training runs locally in your browser. Progress is shown in Terminal.";
   $("btn-predict").closest(".sec").querySelector(".mini").textContent="Blank inputs remain missing and are not median-imputed. Transverse geometry is ignored when reinforcement is 0 or blank.";
-  $("card-plot").querySelectorAll("label").forEach((el,i)=>el.textContent=["Chart","Model","X variable","Y variable","Color variable","X min","X max","Y min","Y max"][i]||el.textContent);
+  $("card-plot").querySelectorAll("label").forEach((el,i)=>el.textContent=["Chart","Model","X variable","Y variable","X min","X max","Y min","Y max"][i]||el.textContent);
   $("sel-free-c")?.closest(".fld")?.remove();
   $("card-plot").querySelector(".mini").textContent="Zoom and pan are available directly in the chart.";
   $("card-log").querySelector("h2").textContent="Terminal";
@@ -1054,7 +1065,13 @@ async function sendFile(buf, name){
   fileName = name || "uploaded file";
   fileType = /\.csv$/i.test(fileName) ? "csv" : "excel";
   $("file-name").textContent = name;
-  const r = await call("file", {buffer: buf.slice(0), file_name:fileName, file_type:fileType}, [buf.slice(0)].map(b => b));
+  if (!window.XLSX) throw new Error("The browser spreadsheet reader is still loading. Please try again in a moment.");
+  const workbook = XLSX.read(buf, {type:"array", cellDates:false});
+  fileSheets = {};
+  workbook.SheetNames.forEach(sheetName => {
+    fileSheets[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {defval:null, raw:true});
+  });
+  const r = {sheets: workbook.SheetNames};
   const sel = $("sheet-sel");
   sel.innerHTML = "";
   r.sheets.forEach(s => { const o = document.createElement("option"); o.textContent = s; sel.appendChild(o); });
@@ -1065,22 +1082,21 @@ async function sendFile(buf, name){
 
 async function loadSheet(){
   const sheet = fileType === "csv" ? "CSV" : $("sheet-sel").value;
-  if (!sheet){ logErr(new Error("Önce bir dosya seçin.")); return; }
-  setStatus("veri yükleniyor...", "load");
+  if (!sheet){ logErr(new Error("Select a file first.")); return; }
+  setStatus("Loading data...", "load");
   try{
-    if (fileBuffer) await call("file", {buffer: fileBuffer.slice(0), file_name:fileName, file_type:fileType});
-    const r = await call("load", {sheet, file_name:fileName, file_type:fileType});
+    const r = await call("load", {sheet, file_name:fileName, file_type:fileType, records:fileSheets[sheet] || []});
     dataLoaded = true;
     $("data-summary").innerHTML =
-      "<b>" + r.n_rows + "</b> satır, <b>" + r.n_cols + "</b> kolon yüklendi.<br>" +
-      "Hedef '" + TARGET_COL + "' " + (r.has_target ? "MEVCUT (dolu: " + r.target_n + ")" : "<span style='color:var(--warn)'>YOK!</span>");
+      "<b>" + r.n_rows + "</b> rows, <b>" + r.n_cols + "</b> columns loaded.<br>" +
+      "Target '" + r.target_col + "' " + (r.has_target ? "available (valid: " + r.target_n + ")" : "<span style='color:var(--warn)'>missing</span>");
     buildColList(r.numeric_cols, r.default_selected);
     fillFreeSelects(r.numeric_cols);
     renderPredictionFields(r.feature_cols || []);
     ACTIVE_TARGET_COL = r.target_col || TARGET_COL;
     logLine("Loaded " + r.n_rows + " rows and " + r.n_cols + " columns from '" + sheet + "'.", "ok");
     setStatus("Data ready — filtering and training available", "ready");
-  } catch(err){ logErr(err); setStatus("veri yüklenemedi", "err"); }
+  } catch(err){ logErr(err); setStatus("Data loading failed", "err"); }
 }
 
 if ($("btn-default")) $("btn-default").addEventListener("click", async () => {
@@ -1136,7 +1152,7 @@ function buildColList(cols, selected){
 }
 
 $("btn-filter").addEventListener("click", async () => {
-  if (!dataLoaded){ logErr(new Error("Önce veri yükleyin.")); return; }
+  if (!dataLoaded){ logErr(new Error("Upload data first.")); return; }
   const cols = Array.from($("col-list").querySelectorAll("input:checked")).map(i => i.value);
   try{
     const r = await call("filter", {
@@ -1144,7 +1160,7 @@ $("btn-filter").addEventListener("click", async () => {
       grubbs: $("ck-grubbs").checked, alpha: parseNum($("in-alpha").value),
       iqr: $("ck-iqr").checked, k: parseNum($("in-k").value)});
     r.report.split("\n").forEach(l => logLine(l));
-    $("data-summary").innerHTML += "<br>Filtre sonrası: <b>" + r.n + "</b> satır aktif.";
+    $("data-summary").innerHTML += "<br>After filtering: <b>" + r.n + "</b> active rows.";
   } catch(err){ logErr(err); }
 });
 
@@ -1177,14 +1193,14 @@ function registerModel(name){
 }
 
 $("btn-train").addEventListener("click", async () => {
-  if (!dataLoaded){ logErr(new Error("Önce 1. bölümde veri yükleyin.")); return; }
+  if (!dataLoaded){ logErr(new Error("Upload data in section 1 first.")); return; }
   const models = [];
   if ($("ck-rf").checked) models.push("Random Forest");
   if ($("ck-xgb").checked) models.push("XGBoost");
   if ($("ck-svr").checked) models.push("SVR");
-  if (!models.length){ logErr(new Error("En az bir model seçin.")); return; }
+  if (!models.length){ logErr(new Error("Select at least one model.")); return; }
   const btn = $("btn-train");
-  btn.disabled = true; btn.textContent = "EĞİTİLİYOR...";
+  btn.disabled = true; btn.textContent = "TRAINING...";
   setStatus("Training in progress — see Terminal", "load");
   $("res-body").innerHTML = "";
   trainedModels.length = 0;
@@ -1208,7 +1224,7 @@ $("btn-train").addEventListener("click", async () => {
       rs: parseInt($("in-seed").value) || 42});
     setStatus("Training complete", "ready");
   } catch(err){ logErr(err); setStatus("Training error", "err"); }
-  btn.disabled = false; btn.textContent = "EĞİT";
+  btn.disabled = false; btn.textContent = "Train models";
 });
 
 /* ── grafikler ── */
@@ -1250,7 +1266,7 @@ const PLOT_CFG = {responsive: true, displaylogo: false};
 $("btn-plot").addEventListener("click", async () => {
   const kind = $("sel-plot-kind").value;
   const btn = $("btn-plot");
-  btn.disabled = true; btn.textContent = "hesaplanıyor...";
+  btn.disabled = true; btn.textContent = "Calculating...";
   try{
     const req = {kind};
     if (kind === "scatter"){
@@ -1258,7 +1274,7 @@ $("btn-plot").addEventListener("click", async () => {
     } else {
       req.model = $("sel-plot-model").value;
       if (kind === "surface3d") { req.x=$("sel-free-x").value; req.y=$("sel-free-y").value; }
-      if (!req.model) throw new Error("Önce 3. bölümde model eğitin.");
+      if (!req.model) throw new Error("Train a model first.");
     }
     const d = await call("plot", req);
     let traces = [], lay;
@@ -1269,28 +1285,28 @@ $("btn-plot").addEventListener("click", async () => {
          marker: {size: 6, opacity: 0.6, color: "#4285f4"}},
         {x: [0, mx], y: [0, mx], mode: "lines", name: "1:1",
          line: {dash: "dash", color: "#f55f4e", width: 1.6}}];
-      lay = baseLayout(d.title, "Deneysel max bond stress (MPa)", "Tahmin (MPa)");
+      lay = baseLayout(d.title, "Observed max bond stress (MPa)", "Predicted (MPa)");
     } else if (kind === "bo"){
       traces = [
-        {x: d.iter, y: d.r2, mode: "markers", name: "deneme CV R²",
+        {x: d.iter, y: d.r2, mode: "markers", name: "trial CV R2",
          marker: {size: 6, opacity: 0.55, color: "#4285f4"}},
-        {x: d.iter, y: d.best, mode: "lines", name: "kümülatif en iyi",
+        {x: d.iter, y: d.best, mode: "lines", name: "best so far",
          line: {color: "#f0b24e", width: 2.2}}];
-      lay = baseLayout(d.title, "Deneme sırası", "CV R²");
+      lay = baseLayout(d.title, "Trial number", "CV R2");
     } else if (kind === "importance"){
       traces = [{x: d.mean, y: d.features, type: "bar", orientation: "h",
                  error_x: {type: "data", array: d.std, color: "#8a97b0"},
-                 marker: {color: "#4285f4"}, name: "önem"}];
-      lay = baseLayout(d.title, "Permütasyon önemi (R² düşüşü)", "");
+                 marker: {color: "#4285f4"}, name: "importance"}];
+      lay = baseLayout(d.title, "Permutation importance (R2 decrease)", "");
       lay.margin.l = 250; lay.showlegend = false;
     } else if (kind === "residual"){
       const x0 = Math.min(...d.x), x1 = Math.max(...d.x);
       traces = [
-        {x: d.x, y: d.y, mode: "markers", name: "artık",
+        {x: d.x, y: d.y, mode: "markers", name: "residual",
          marker: {size: 6, opacity: 0.6, color: "#4285f4"}},
-        {x: [x0, x1], y: [0, 0], mode: "lines", name: "sıfır",
+        {x: [x0, x1], y: [0, 0], mode: "lines", name: "zero",
          line: {dash: "dash", color: "#f55f4e", width: 1.4}}];
-      lay = baseLayout(d.title, "Tahmin (MPa)", "Artık = deneysel − tahmin (MPa)");
+      lay = baseLayout(d.title, "Predicted (MPa)", "Residual = observed - predicted (MPa)");
     } else if (kind === "surface3d") {
       traces = [{x:d.x,y:d.y,z:d.z,type:"surface",colorscale:"Viridis",colorbar:{title:"τmax (MPa)"}}];
       lay = {title:{text:d.title,font:{size:13}},paper_bgcolor:"#1e2535",plot_bgcolor:"#141927",font:{color:"#e8edf5"},scene:{xaxis:{title:d.xlabel},yaxis:{title:d.ylabel},zaxis:{title:"τmax (MPa)"}},margin:{t:48,r:20,b:20,l:20}};
@@ -1303,19 +1319,19 @@ $("btn-plot").addEventListener("click", async () => {
         t.marker.colorbar = {title: {text: d.clabel}, outlinewidth: 0};
       }
       traces = [t];
-      lay = baseLayout("Veri saçılımı (n=" + d.n + ")", d.xlabel, d.ylabel);
+      lay = baseLayout("Data scatter (n=" + d.n + ")", d.xlabel, d.ylabel);
       lay.showlegend = false;
     }
     axisOpts(lay);
     Plotly.newPlot("plot-div", traces, lay, PLOT_CFG);
   } catch(err){ logErr(err); }
-  btn.disabled = false; btn.textContent = "ÇİZ";
+  btn.disabled = false; btn.textContent = "Draw chart";
 });
 
 /* ── 4: tahmin ── */
 $("btn-predict").addEventListener("click", async () => {
   const model = $("sel-pred-model").value;
-  if (!model){ logErr(new Error("Önce 3. bölümde model eğitin.")); return; }
+  if (!model){ logErr(new Error("Train a model first.")); return; }
   try{
     const row = {};
     document.querySelectorAll(".pin").forEach(inp => { row[inp.dataset.col] = parseNum(inp.value); });
