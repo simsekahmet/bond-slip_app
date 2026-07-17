@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bond Stress Studio — τmax Tahmin Aracı</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow:wght@400;500;600;700&display=swap');
+:root{
+  --bg:#161b26;--panel:#1e2535;--panel2:#252d40;
+  --border:#2e3a52;--accent:#4285f4;--green:#34c77b;
+  --warn:#f55f4e;--amber:#f0b24e;--txt:#e8edf5;--txt2:#8a97b0;--txt3:#5a6680;
+  --mono:'JetBrains Mono',monospace;--sans:'Barlow',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13px}
+
+/* ── top bar ── */
+#topbar{
+  background:var(--panel);border-bottom:1px solid var(--border);
+  padding:10px 20px;display:flex;align-items:center;gap:14px;
+  position:sticky;top:0;z-index:200;flex-shrink:0;
+}
+#topbar h1{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--accent)}
+#topbar .ver{font-size:11px;color:var(--txt3);font-family:var(--mono)}
+#status-chip{
+  font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:20px;
+  background:var(--panel2);border:1px solid var(--border);color:var(--amber);
+  max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#status-chip.ready{color:var(--green)}
+#status-chip.err{color:var(--warn)}
+#topbar .author{margin-left:auto;font-size:11px;color:var(--txt2);font-family:var(--mono)}
+
+/* ── layout ── */
+#layout{display:flex;height:calc(100vh - 42px);overflow:hidden}
+#sidebar{
+  width:342px;min-width:342px;flex-shrink:0;height:100%;
+  overflow-y:auto;background:var(--panel);
+  border-right:1px solid var(--border);display:flex;flex-direction:column;
+}
+.sec{border-bottom:1px solid var(--border);padding:11px 13px;flex-shrink:0}
+.sec-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:9px}
+#results{flex:1;min-width:0;height:100%;overflow-y:auto;padding:14px;
+  display:flex;flex-direction:column;gap:14px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px}
+.card h2{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+
+/* ── form elements ── */
+label{font-size:11px;color:var(--txt2);display:block;margin-bottom:3px}
+input[type=number],input[type=text],select{
+  background:var(--bg);border:1px solid var(--border);color:var(--txt);
+  font-family:var(--mono);font-size:11px;padding:4px 7px;border-radius:4px;
+  width:100%;outline:none;transition:border-color .15s}
+input:focus,select:focus{border-color:var(--accent)}
+select option{background:var(--panel2)}
+input[type=checkbox]{accent-color:var(--accent)}
+.ckrow{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--txt)}
+.ckrow input[type=text]{width:56px}
+.ckrow .lbl{white-space:nowrap}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:7px}
+.row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:7px;margin-bottom:7px}
+
+/* ── upload ── */
+.upload-zone{
+  display:block;border:1.5px dashed rgba(52,199,123,0.5);border-radius:5px;
+  padding:8px 10px;text-align:center;cursor:pointer;
+  transition:border-color .2s,background .2s;background:#0d2e1a;margin-bottom:7px;
+}
+.upload-zone:hover{border-color:var(--green);background:rgba(52,199,123,0.1)}
+.upload-zone .uz-text{font-size:11px;color:var(--txt2);line-height:1.5}
+.upload-zone .uz-name{font-size:11px;color:var(--green);margin-top:4px;font-family:var(--mono);word-break:break-all}
+
+/* ── buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:4px;
+  border:none;font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-blue{background:var(--accent);color:#fff}
+.btn-gray{background:var(--panel2);color:var(--txt2);border:1px solid var(--border)}
+.btn-green{background:var(--green);color:#0d1f16}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px}
+
+/* ── column list ── */
+#col-list{
+  max-height:170px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);
+  border-radius:4px;padding:5px 7px;margin-bottom:7px;
+}
+#col-list .ckrow{margin-bottom:3px;font-size:11px;font-family:var(--mono)}
+#col-list .ckrow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── summary / small text ── */
+.mini{font-size:11px;color:var(--txt2);font-family:var(--mono);line-height:1.5;margin-top:6px;word-break:break-word}
+.mini b{color:var(--green)}
+
+/* ── results table ── */
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+th,td{border:1px solid var(--border);padding:5px 8px;text-align:center}
+th{background:var(--panel2);color:var(--txt2);font-weight:600}
+td{color:var(--txt)}
+
+/* ── console ── */
+#console{
+  background:#10141d;border:1px solid var(--border);border-radius:4px;
+  font-family:var(--mono);font-size:11px;line-height:1.55;color:var(--txt2);
+  height:180px;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;
+}
+#console .err{color:var(--warn)}
+#console .ok{color:var(--green)}
+
+/* ── plot ── */
+#plot-div{width:100%;height:480px}
+.plot-ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px}
+.plot-ctrl .fld{display:flex;flex-direction:column;gap:2px}
+.plot-ctrl select{width:auto;min-width:110px}
+.plot-ctrl input[type=text]{width:64px}
+.plot-ctrl .ck{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt);padding-bottom:5px}
+
+/* ── prediction output ── */
+#pred-out{
+  font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green);
+  background:var(--bg);border:1px solid var(--border);border-radius:4px;
+  padding:8px 10px;margin-top:8px;line-height:1.5;word-break:break-word;
+}
+
+/* ── boot overlay ── */
+#boot{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  padding:60px 20px;text-align:center;
+}
+.spinner{
+  width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin 0.9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#boot .msg{font-family:var(--mono);font-size:12px;color:var(--txt2);max-width:560px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>Bond Stress Studio</h1>
+  <span class="ver">v1.0 · web</span>
+  <span id="status-chip">başlatılıyor...</span>
+  <span class="author">τ<sub>max</sub> tahmini · Ahmet Şimşek — MSc Tez</span>
+</div>
+
+<div id="layout">
+  <!-- ═══════════ SIDEBAR ═══════════ -->
+  <div id="sidebar">
+
+    <div class="sec">
+      <div class="sec-title">1 · Veri</div>
+      <button class="btn btn-green btn-sm act" id="btn-default" disabled>Varsayılan veriyi yükle (filtered_data.xlsx)</button>
+      <div style="height:8px"></div>
+      <label class="upload-zone" for="file-input">
+        <div class="uz-text">Kendi Excel dosyanı seç / sürükle (.xlsx)</div>
+        <div class="uz-name" id="file-name">—</div>
+        <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none" disabled>
+      </label>
+      <div class="row2">
+        <div><label>Sayfa</label><select id="sheet-sel"></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-blue btn-sm act" id="btn-load" disabled style="width:100%">Yükle</button></div>
+      </div>
+      <div class="mini" id="data-summary">Veri yüklenmedi.</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">2 · Aykırı Değer Filtresi</div>
+      <div class="ckrow"><input type="checkbox" id="ck-grubbs" checked><span class="lbl">Grubbs testi &nbsp;α =</span><input type="text" id="in-alpha" value="0.05"></div>
+      <div class="ckrow"><input type="checkbox" id="ck-iqr"><span class="lbl">IQR kuralı &nbsp;&nbsp;&nbsp;&nbsp;k =</span><input type="text" id="in-k" value="1.5"></div>
+      <label style="margin-top:5px">Filtre uygulanacak kolonlar</label>
+      <div id="col-list"><span class="mini">önce veri yükleyin</span></div>
+      <div class="btn-row">
+        <button class="btn btn-blue btn-sm act" id="btn-filter" disabled>Filtreyi Uygula</button>
+        <button class="btn btn-gray btn-sm act" id="btn-reset" disabled>Sıfırla (ham veri)</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">3 · Eğitim</div>
+      <div class="row2">
+        <div><label>Senaryo</label><select id="sel-scenario"></select></div>
+        <div><label>fc üssü (özellik)</label><select id="sel-fcpow"><option>1.0</option><option>0.5</option><option>0.25</option></select></div>
+      </div>
+      <div class="ckrow"><input type="checkbox" id="ck-rf" checked><span class="lbl">Random Forest</span></div>
+      <div class="ckrow"><input type="checkbox" id="ck-xgb" checked><span class="lbl">XGBoost</span></div>
+      <div class="ckrow"><input type="checkbox" id="ck-svr"><span class="lbl">SVR</span></div>
+      <div class="row4">
+        <div><label id="lbl-iter">BO deneme</label><input type="text" id="in-iter" value="15"></div>
+        <div><label>CV katı</label><input type="text" id="in-cv" value="3"></div>
+        <div><label>Test oranı</label><input type="text" id="in-test" value="0.20"></div>
+        <div><label>Tohum</label><input type="text" id="in-seed" value="42"></div>
+      </div>
+      <button class="btn btn-blue act" id="btn-train" disabled style="width:100%">EĞİT</button>
+      <div class="mini">Not: eğitim tarayıcıda çalışır; model sayısı ve deneme adedine göre birkaç dakika sürebilir. İlerleme sağdaki günlükte akar.</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">4 · Tahmin (tek numune)</div>
+      <div class="row2">
+        <div><label>Donatı çapı (mm)</label><input type="text" class="pin" data-col="bar_diameter_mm"></div>
+        <div><label>Akma dayanımı (MPa)</label><input type="text" class="pin" data-col="nominal_yield_strength_mpa"></div>
+        <div><label>Beton dayanımı fc (MPa)</label><input type="text" class="pin" data-col="concrete_strength_mpa"></div>
+        <div><label>Gömme boyu (db katı)</label><input type="text" class="pin" data-col="embedment_length_db"></div>
+        <div><label>Paspayı (db katı)</label><input type="text" class="pin" data-col="concrete_cover_db"></div>
+        <div><label>Enine donatı? (1/0)</label><input type="text" class="pin" data-col="transverse_reinforcement"></div>
+        <div><label>Etriye aralığı (mm)</label><input type="text" class="pin" data-col="transverse_reinforcement_mm"></div>
+        <div><label>Etriye çapı (mm)</label><input type="text" class="pin" data-col="transverse_reinforcement_bar_diameter_mm"></div>
+      </div>
+      <div class="row2">
+        <div><label>Model</label><select id="sel-pred-model"></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-green act" id="btn-predict" disabled style="width:100%">TAHMİN ET</button></div>
+      </div>
+      <div id="pred-out">—</div>
+      <div class="mini">Boş bırakılan özellik "ölçülmemiş" olarak modele bildirilir (medyanla doldurulmaz). Enine donatı 0/boş ise etriye aralığı/çapı otomatik yok sayılır.</div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════ RESULTS ═══════════ -->
+  <div id="results">
+    <div id="boot">
+      <div class="spinner"></div>
+      <div class="msg" id="boot-msg">Python çalışma ortamı (Pyodide/WebAssembly) indiriliyor...<br>
+      İlk açılışta 15–40 saniye sürebilir; sonraki açılışlar tarayıcı önbelleğinden çok daha hızlıdır.</div>
+    </div>
+
+    <div class="card" id="card-results" style="display:none">
+      <h2>Model Sonuçları</h2>
+      <table>
+        <thead><tr><th>Model</th><th>CV R² (en iyi)</th><th>Test R²</th><th>Test RMSE (MPa)</th><th>n eğitim</th><th>n test</th></tr></thead>
+        <tbody id="res-body"></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="card-plot" style="display:none">
+      <h2>Grafikler</h2>
+      <div class="plot-ctrl">
+        <div class="fld"><label>Grafik</label>
+          <select id="sel-plot-kind">
+            <option value="parity">Deneysel vs Tahmin (parite)</option>
+            <option value="bo">BO yakınsaması</option>
+            <option value="importance">Özellik önemi (permütasyon)</option>
+            <option value="residual">Artıklar (residual)</option>
+            <option value="scatter">Serbest saçılım (veri)</option>
+          </select>
+        </div>
+        <div class="fld"><label>Model</label><select id="sel-plot-model"></select></div>
+        <div class="fld"><label>X (saçılım)</label><select id="sel-free-x"></select></div>
+        <div class="fld"><label>Y (saçılım)</label><select id="sel-free-y"></select></div>
+        <div class="fld"><label>Renk</label><select id="sel-free-c"></select></div>
+        <button class="btn btn-blue btn-sm act" id="btn-plot" disabled>ÇİZ</button>
+      </div>
+      <div class="plot-ctrl">
+        <div class="ck"><input type="checkbox" id="ck-logx"><span>log X</span></div>
+        <div class="ck"><input type="checkbox" id="ck-logy"><span>log Y</span></div>
+        <div class="fld"><label>X min</label><input type="text" id="in-xmin"></div>
+        <div class="fld"><label>X max</label><input type="text" id="in-xmax"></div>
+        <div class="fld"><label>Y min</label><input type="text" id="in-ymin"></div>
+        <div class="fld"><label>Y max</label><input type="text" id="in-ymax"></div>
+        <span class="mini" style="padding-bottom:5px">(boş = otomatik; grafik üzerinde zoom/pan da yapılabilir)</span>
+      </div>
+      <div id="plot-div"></div>
+    </div>
+
+    <div class="card" id="card-log" style="display:none">
+      <h2>Günlük</h2>
+      <div id="console"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ WEB WORKER KAYNAĞI (Pyodide) ═══════════════════ -->
+<script type="text/plain" id="worker-src">
+const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
+let pyodide = null;
+
+function post(m, transfer){ self.postMessage(m, transfer || []); }
+self.pylog = (s) => post({type:"log", text:s});
+self.pyrow = (s) => post({type:"row", payload: JSON.parse(s)});
+
+const PY_CODE = String.raw`
+# -*- coding: utf-8 -*-
+# Bond Stress Studio — web cekirdegi.
+# 08_bond_stress_app.py (masaustu) ile ayni veri/egitim mantigi; arayuz JS'te.
+import json
+import numpy as np
+import pandas as pd
+from scipy import stats
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.inspection import permutation_importance
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.svm import SVR
+
+from js import pylog, pyrow
+
+try:
+    from xgboost import XGBRegressor
+    HAS_XGB = True
+except Exception:
+    HAS_XGB = False
+
+try:
+    from skopt import BayesSearchCV
+    from skopt.space import Real, Integer
+    HAS_SKOPT = True
+except Exception:
+    from sklearn.model_selection import RandomizedSearchCV
+    HAS_SKOPT = False
+
+FEATURE_COLS = [
+    "bar_diameter_mm",
+    "nominal_yield_strength_mpa",
+    "concrete_strength_mpa",
+    "embedment_length_db",
+    "concrete_cover_db",
+    "transverse_reinforcement",
+    "transverse_reinforcement_mm",
+    "transverse_reinforcement_bar_diameter_mm",
+]
+TARGET_COL = "maximum_bond_stress_mpa"
+TR_FLAG = "transverse_reinforcement"
+TR_GEO_COLS = ["transverse_reinforcement_mm",
+               "transverse_reinforcement_bar_diameter_mm"]
+DEFAULT_FILTER_COLS = FEATURE_COLS + [TARGET_COL, "maximum_slip_mm"]
+
+SCENARIOS = [
+    {"scenario_name": "tum_veri", "filters": {}},
+    {"scenario_name": "plain_all", "filters": {"bar_type": "plain"}},
+    {"scenario_name": "deformed_all", "filters": {"bar_type": "deformed"}},
+    {"scenario_name": "plain_fc_0_20", "filters": {"bar_type": "plain", "concrete_strength_mpa": (None, 20)}},
+    {"scenario_name": "plain_fc_gte20", "filters": {"bar_type": "plain", "concrete_strength_mpa": (20, None)}},
+    {"scenario_name": "deformed_fc_0_55", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (None, 55)}},
+    {"scenario_name": "deformed_fc_gte55", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (55, None)}},
+    {"scenario_name": "deformed_tr_1", "filters": {"bar_type": "deformed", "transverse_reinforcement": 1}},
+    {"scenario_name": "deformed_tr_0", "filters": {"bar_type": "deformed", "transverse_reinforcement": 0}},
+    {"scenario_name": "deformed_fc_0_55_tr_0", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (None, 55), "transverse_reinforcement": 0}},
+    {"scenario_name": "deformed_fc_0_55_tr_1", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (None, 55), "transverse_reinforcement": 1}},
+    {"scenario_name": "deformed_fc_gte55_tr_0", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (55, None), "transverse_reinforcement": 0}},
+    {"scenario_name": "deformed_fc_gte55_tr_1", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (55, None), "transverse_reinforcement": 1}},
+]
+SCENARIO_MAP = {s["scenario_name"]: s["filters"] for s in SCENARIOS}
+
+DF_RAW = None
+DF = None
+RESULTS = {}
+
+
+def flags():
+    return json.dumps({"has_xgb": HAS_XGB, "has_skopt": HAS_SKOPT,
+                       "scenarios": [s["scenario_name"] for s in SCENARIOS]})
+
+
+def _num_list(s):
+    vals = pd.to_numeric(s, errors="coerce")
+    return [None if not np.isfinite(v) else float(v) for v in vals]
+
+
+def filter_scenario(df, filters):
+    data = df.copy()
+    for col, rule in filters.items():
+        if rule is None:
+            continue
+        if col == "transverse_reinforcement":
+            vals = pd.to_numeric(data[col], errors="coerce")
+            if rule in (1, "1"):
+                data = data[vals == 1]
+            elif rule in (0, "0"):
+                data = data[(vals == 0) | (vals.isna())]
+            continue
+        if isinstance(rule, tuple):
+            lo, hi = rule
+            vals = pd.to_numeric(data[col], errors="coerce")
+            mask = pd.Series(True, index=data.index)
+            if lo is not None:
+                mask &= vals > lo
+            if hi is not None:
+                mask &= vals <= hi
+            data = data[mask]
+        else:
+            data = data[data[col] == rule]
+    return data.reset_index(drop=True)
+
+
+class MissingAwareScaler(BaseEstimator, TransformerMixin):
+    """Gozlenen degerler standardize edilir; eksikler doldurulmaz, ayri
+    'mevcut mu' kanaliyla modele bildirilir (02 defteriyle ayni yaklasim)."""
+
+    def fit(self, X, y=None):
+        arr = np.asarray(X, dtype=float)
+        self.n_features_in_ = arr.shape[1]
+        self.mean_ = np.zeros(self.n_features_in_)
+        self.scale_ = np.ones(self.n_features_in_)
+        for j in range(self.n_features_in_):
+            obs = arr[np.isfinite(arr[:, j]), j]
+            if len(obs):
+                self.mean_[j] = obs.mean()
+                std = obs.std()
+                self.scale_[j] = std if std > 1e-12 else 1.0
+        return self
+
+    def transform(self, X):
+        arr = np.asarray(X, dtype=float)
+        avail = np.isfinite(arr).astype(float)
+        z = (arr - self.mean_) / self.scale_
+        z[~np.isfinite(arr)] = 0.0
+        return np.concatenate([z, avail], axis=1)
+
+
+def apply_tr_logic(feats):
+    feats = feats.copy()
+    feats[TR_FLAG] = pd.to_numeric(feats[TR_FLAG], errors="coerce").fillna(0)
+    active = feats[TR_FLAG].eq(1)
+    feats.loc[~active, TR_GEO_COLS] = np.nan
+    return feats
+
+
+def grubbs_outlier_rows(df, cols, alpha=0.05):
+    bad = set()
+    detail = []
+    for col in cols:
+        v = pd.to_numeric(df[col], errors="coerce")
+        obs = v.dropna()
+        n = len(obs)
+        if n < 3:
+            continue
+        t2 = stats.t.ppf(1 - alpha / (2 * n), n - 2) ** 2
+        g_crit = ((n - 1) / np.sqrt(n)) * np.sqrt(t2 / (n - 2 + t2))
+        mu, sd = obs.mean(), obs.std(ddof=1)
+        if sd <= 1e-12:
+            continue
+        g = (obs - mu).abs() / sd
+        idx = obs.index[g > g_crit]
+        bad.update(idx.tolist())
+        detail.append((col, len(idx), g_crit))
+    return bad, detail
+
+
+def iqr_outlier_rows(df, cols, k=1.5):
+    bad = set()
+    detail = []
+    for col in cols:
+        v = pd.to_numeric(df[col], errors="coerce")
+        obs = v.dropna()
+        if len(obs) < 4:
+            continue
+        q1, q3 = obs.quantile(0.25), obs.quantile(0.75)
+        iqr = q3 - q1
+        if iqr <= 1e-12:
+            continue
+        lo, hi = q1 - k * iqr, q3 + k * iqr
+        idx = obs.index[(obs < lo) | (obs > hi)]
+        bad.update(idx.tolist())
+        detail.append((col, len(idx), (lo, hi)))
+    return bad, detail
+
+
+def model_space(name, random_state):
+    if name == "Random Forest":
+        est = RandomForestRegressor(random_state=random_state, n_jobs=1)
+        if HAS_SKOPT:
+            space = {"model__n_estimators": Integer(100, 800),
+                     "model__max_depth": Integer(3, 20),
+                     "model__min_samples_leaf": Integer(1, 10),
+                     "model__max_features": Real(0.3, 1.0)}
+        else:
+            space = {"model__n_estimators": [100, 200, 400, 800],
+                     "model__max_depth": [3, 6, 10, 20],
+                     "model__min_samples_leaf": [1, 2, 5, 10],
+                     "model__max_features": [0.3, 0.6, 1.0]}
+    elif name == "XGBoost":
+        est = XGBRegressor(objective="reg:squarederror",
+                           random_state=random_state, n_jobs=1)
+        if HAS_SKOPT:
+            space = {"model__n_estimators": Integer(100, 800),
+                     "model__max_depth": Integer(2, 8),
+                     "model__learning_rate": Real(0.01, 0.3, prior="log-uniform"),
+                     "model__subsample": Real(0.6, 1.0),
+                     "model__colsample_bytree": Real(0.6, 1.0),
+                     "model__reg_lambda": Real(0.1, 10.0, prior="log-uniform")}
+        else:
+            space = {"model__n_estimators": [100, 200, 400, 800],
+                     "model__max_depth": [2, 4, 6, 8],
+                     "model__learning_rate": [0.01, 0.05, 0.1, 0.3],
+                     "model__subsample": [0.6, 0.8, 1.0],
+                     "model__reg_lambda": [0.1, 1.0, 10.0]}
+    elif name == "SVR":
+        est = SVR()
+        if HAS_SKOPT:
+            space = {"model__C": Real(0.1, 100.0, prior="log-uniform"),
+                     "model__gamma": Real(1e-3, 1.0, prior="log-uniform"),
+                     "model__epsilon": Real(0.01, 1.0, prior="log-uniform")}
+        else:
+            space = {"model__C": [0.1, 1, 10, 100],
+                     "model__gamma": [1e-3, 1e-2, 0.1, 1.0],
+                     "model__epsilon": [0.01, 0.1, 0.5, 1.0]}
+    else:
+        raise ValueError(name)
+    return Pipeline([("scaler", MissingAwareScaler()), ("model", est)]), space
+
+
+# ── mesaj isleyicileri (hepsi JSON str alir, JSON str dondurur) ──────────
+
+def sheets_from_file(arg):
+    xls = pd.ExcelFile("/data.xlsx")
+    return json.dumps({"sheets": list(xls.sheet_names)})
+
+
+def load_data(arg):
+    global DF_RAW, DF
+    m = json.loads(arg)
+    DF_RAW = pd.read_excel("/data.xlsx", sheet_name=m["sheet"])
+    DF = DF_RAW.copy()
+    numeric = [c for c in DF_RAW.columns
+               if pd.to_numeric(DF_RAW[c], errors="coerce").notna().sum() > 0]
+    has_t = TARGET_COL in DF_RAW.columns
+    t_n = int(pd.to_numeric(DF_RAW[TARGET_COL], errors="coerce").notna().sum()) if has_t else 0
+    return json.dumps({
+        "n_rows": int(len(DF_RAW)),
+        "n_cols": int(len(DF_RAW.columns)),
+        "numeric_cols": numeric,
+        "default_selected": [c for c in numeric if c in DEFAULT_FILTER_COLS],
+        "has_target": has_t,
+        "target_n": t_n,
+    })
+
+
+def apply_filters(arg):
+    global DF
+    m = json.loads(arg)
+    if DF_RAW is None:
+        raise RuntimeError("Once veri yukleyin.")
+    cols = m["cols"]
+    if not cols:
+        raise RuntimeError("En az bir kolon secin.")
+    df = DF_RAW.copy()
+    report = ["Baslangic: %d satir" % len(df)]
+    if m["grubbs"]:
+        alpha = float(m["alpha"])
+        bad, det = grubbs_outlier_rows(df, cols, alpha=alpha)
+        df = df.drop(index=list(bad))
+        report.append("Grubbs (alpha=%g): %d satir elendi" % (alpha, len(bad)))
+        for col, n, gc in det:
+            if n:
+                report.append("   %s: %d aykiri (G_crit=%.3f)" % (col, n, gc))
+    if m["iqr"]:
+        k = float(m["k"])
+        bad, det = iqr_outlier_rows(df, cols, k=k)
+        df = df.drop(index=list(bad))
+        report.append("IQR (k=%g): %d satir elendi" % (k, len(bad)))
+        for col, n, lim in det:
+            if n:
+                report.append("   %s: %d aykiri (sinir %.2f..%.2f)" % (col, n, lim[0], lim[1]))
+    DF = df.reset_index(drop=True)
+    report.append("Sonuc: %d satir (egitimde bu veri kullanilacak)" % len(DF))
+    return json.dumps({"report": "\n".join(report), "n": int(len(DF))})
+
+
+def reset_filter(arg):
+    global DF
+    if DF_RAW is None:
+        raise RuntimeError("Once veri yukleyin.")
+    DF = DF_RAW.copy()
+    return json.dumps({"report": "Filtre sifirlandi; ham veri (%d satir) aktif." % len(DF),
+                       "n": int(len(DF))})
+
+
+def train(arg):
+    cfg = json.loads(arg)
+    if DF is None:
+        raise RuntimeError("Once veri yukleyin.")
+    if TARGET_COL not in DF.columns:
+        raise RuntimeError("Veride '%s' kolonu yok." % TARGET_COL)
+    d = filter_scenario(DF, SCENARIO_MAP[cfg["scenario"]])
+    y = pd.to_numeric(d[TARGET_COL], errors="coerce")
+    keep = y.notna() & (y >= 0)
+    X = d.loc[keep, FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
+    X = apply_tr_logic(X)
+    X["concrete_strength_mpa"] = np.power(
+        X["concrete_strength_mpa"].clip(lower=0), float(cfg["fc_power"]))
+    y = y[keep].astype(float)
+    pylog("Senaryo '%s': %d numune (fc ussu=%g)." % (cfg["scenario"], len(y), float(cfg["fc_power"])))
+    if len(y) < 30:
+        raise RuntimeError("Egitim icin veri cok az (<30). Senaryoyu genisletin.")
+    Xtr, Xte, ytr, yte = train_test_split(
+        X.values, y.values, test_size=float(cfg["test_size"]),
+        random_state=int(cfg["rs"]))
+    n_iter, cv, rs = int(cfg["n_iter"]), int(cfg["cv"]), int(cfg["rs"])
+    trained = []
+    for name in cfg["models"]:
+        pylog("")
+        pylog("── %s: %d deneme × %d-kat CV (%s) ..." % (
+            name, n_iter, cv, "Bayesian" if HAS_SKOPT else "rastgele"))
+        pipe, space = model_space(name, rs)
+        if HAS_SKOPT:
+            search = BayesSearchCV(pipe, space, n_iter=n_iter, cv=cv,
+                                   scoring="r2", random_state=rs, n_jobs=1,
+                                   refit=True)
+            def _cb(res):
+                pylog("   deneme %d/%d  |  kumulatif en iyi CV R² = %.3f" % (
+                    len(res.x_iters), n_iter, -res.fun))
+                return False
+            search.fit(Xtr, ytr, callback=_cb)
+        else:
+            search = RandomizedSearchCV(pipe, space, n_iter=n_iter, cv=cv,
+                                        scoring="r2", random_state=rs, n_jobs=1,
+                                        refit=True)
+            search.fit(Xtr, ytr)
+        yp = np.asarray(search.predict(Xte), dtype=float)
+        r2 = float(r2_score(yte, yp))
+        rmse = float(np.sqrt(mean_squared_error(yte, yp)))
+        hist = [float(v) for v in search.cv_results_["mean_test_score"]]
+        best_params = {}
+        for kk, vv in search.best_params_.items():
+            kk = kk.replace("model__", "")
+            if isinstance(vv, (np.floating, np.integer)):
+                vv = vv.item()
+            best_params[kk] = round(vv, 5) if isinstance(vv, float) else vv
+        RESULTS[name] = dict(estimator=search.best_estimator_, bo_history=hist,
+                             cv_r2=float(search.best_score_), test_r2=r2,
+                             test_rmse=rmse, X_test=Xte, y_test=yte, y_pred=yp,
+                             best_params=best_params,
+                             fc_power=float(cfg["fc_power"]),
+                             scenario=cfg["scenario"])
+        pylog("   en iyi CV R²=%.3f | Test R²=%.3f  RMSE=%.2f MPa" % (
+            float(search.best_score_), r2, rmse))
+        pylog("   en iyi parametreler: %s" % best_params)
+        pyrow(json.dumps({"model": name, "cv_r2": float(search.best_score_),
+                          "test_r2": r2, "test_rmse": rmse,
+                          "n_train": int(len(ytr)), "n_test": int(len(yte))}))
+        trained.append(name)
+    pylog("")
+    pylog("OK ✓ Egitim bitti — Grafik panelinden gorselleri, Tahmin bolumunden tekil tahmini kullanin.")
+    return json.dumps({"trained": trained})
+
+
+def plot_data(arg):
+    m = json.loads(arg)
+    kind = m["kind"]
+    if kind == "scatter":
+        if DF is None:
+            raise RuntimeError("Once veri yukleyin.")
+        xc, yc, cc = m["x"], m["y"], m.get("c")
+        if not xc or not yc:
+            raise RuntimeError("X ve Y kolonlarini secin.")
+        x = pd.to_numeric(DF[xc], errors="coerce")
+        y = pd.to_numeric(DF[yc], errors="coerce")
+        out = {"x": _num_list(x), "y": _num_list(y), "xlabel": xc, "ylabel": yc,
+               "n": int((x.notna() & y.notna()).sum())}
+        if cc and cc != "(yok)":
+            out["c"] = _num_list(pd.to_numeric(DF[cc], errors="coerce"))
+            out["clabel"] = cc
+        return json.dumps(out)
+    name = m["model"]
+    if name not in RESULTS:
+        raise RuntimeError("Once model egitin (3. bolum).")
+    r = RESULTS[name]
+    if kind == "parity":
+        return json.dumps({
+            "x": [float(v) for v in r["y_test"]],
+            "y": [float(v) for v in r["y_pred"]],
+            "n": int(len(r["y_test"])),
+            "title": "%s — %s | Test R²=%.3f  RMSE=%.2f MPa" % (
+                name, r["scenario"], r["test_r2"], r["test_rmse"])})
+    if kind == "bo":
+        h = r["bo_history"]
+        return json.dumps({
+            "iter": list(range(1, len(h) + 1)),
+            "r2": h,
+            "best": [float(v) for v in np.maximum.accumulate(h)],
+            "title": "%s — hiperparametre aramasi yakinsamasi" % name})
+    if kind == "importance":
+        imp = permutation_importance(r["estimator"], r["X_test"], r["y_test"],
+                                     n_repeats=10, random_state=42, scoring="r2")
+        order = np.argsort(imp.importances_mean)
+        return json.dumps({
+            "features": [FEATURE_COLS[i] for i in order],
+            "mean": [float(imp.importances_mean[i]) for i in order],
+            "std": [float(imp.importances_std[i]) for i in order],
+            "title": "%s — ozellik onemi (test setinde)" % name})
+    if kind == "residual":
+        res = r["y_test"] - r["y_pred"]
+        return json.dumps({
+            "x": [float(v) for v in r["y_pred"]],
+            "y": [float(v) for v in res],
+            "title": "%s — artik dagilimi (ort=%.2f, std=%.2f MPa)" % (
+                name, float(res.mean()), float(res.std()))})
+    raise ValueError(kind)
+
+
+def predict_one(arg):
+    m = json.loads(arg)
+    name = m["model"]
+    if name not in RESULTS:
+        raise RuntimeError("Once model egitin (3. bolum).")
+    r = RESULTS[name]
+    row = {}
+    for c in FEATURE_COLS:
+        v = m["row"].get(c)
+        row[c] = np.nan if v is None else float(v)
+    X = pd.DataFrame([row], columns=FEATURE_COLS)
+    X = apply_tr_logic(X)
+    X["concrete_strength_mpa"] = np.power(
+        X["concrete_strength_mpa"].clip(lower=0), r["fc_power"])
+    pred = float(r["estimator"].predict(X.values)[0])
+    return json.dumps({"pred": pred, "model": name, "scenario": r["scenario"],
+                       "test_r2": r["test_r2"]})
+`;
+
+const HANDLERS = {
+  file: "sheets_from_file",
+  load: "load_data",
+  filter: "apply_filters",
+  reset: "reset_filter",
+  train: "train",
+  plot: "plot_data",
+  predict: "predict_one",
+};
+
+async function init(){
+  post({type:"status", text:"Pyodide (WebAssembly Python) indiriliyor..."});
+  importScripts(PYODIDE_URL);
+  pyodide = await loadPyodide();
+  post({type:"status", text:"Bilimsel paketler yükleniyor: numpy, pandas, scipy, scikit-learn..."});
+  await pyodide.loadPackage(["numpy","pandas","scipy","scikit-learn","micropip"]);
+  post({type:"status", text:"XGBoost yükleniyor..."});
+  try { await pyodide.loadPackage("xgboost"); } catch(e){ /* opsiyonel */ }
+  const micropip = pyodide.pyimport("micropip");
+  post({type:"status", text:"Excel okuyucu (openpyxl) kuruluyor..."});
+  await micropip.install("openpyxl");
+  post({type:"status", text:"Bayesian arama paketi (scikit-optimize) kuruluyor..."});
+  try {
+    await micropip.install("scikit-optimize");
+  } catch(e){ /* opsiyonel — rastgele aramaya düşülür */ }
+  post({type:"status", text:"Python çekirdeği başlatılıyor..."});
+  pyodide.runPython(PY_CODE);
+  const flags = JSON.parse(pyodide.runPython("flags()"));
+  post({type:"ready", flags});
+}
+
+self.onmessage = async (e) => {
+  const m = e.data;
+  if (m.cmd === "init"){
+    try { await init(); }
+    catch(err){ post({type:"fatal", text:String(err)}); }
+    return;
+  }
+  try {
+    if (!pyodide) throw new Error("Python ortamı henüz hazır değil.");
+    if (m.buffer) pyodide.FS.writeFile("/data.xlsx", new Uint8Array(m.buffer));
+    pyodide.globals.set("_arg", JSON.stringify(m));
+    const out = pyodide.runPython(HANDLERS[m.cmd] + "(_arg)");
+    post({type:"result", id:m.id, cmd:m.cmd, payload: JSON.parse(out)});
+  } catch(err){
+    post({type:"error", id:m.id, cmd:m.cmd, text:String(err)});
+  }
+};
+</script>
+
+<!-- ═══════════════════ ANA ARAYÜZ ═══════════════════ -->
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+const FEATURE_COLS = [
+  "bar_diameter_mm","nominal_yield_strength_mpa","concrete_strength_mpa",
+  "embedment_length_db","concrete_cover_db","transverse_reinforcement",
+  "transverse_reinforcement_mm","transverse_reinforcement_bar_diameter_mm"];
+const TARGET_COL = "maximum_bond_stress_mpa";
+
+/* ── worker kurulumu ── */
+const workerSrc = document.getElementById("worker-src").textContent;
+const worker = new Worker(URL.createObjectURL(new Blob([workerSrc], {type:"application/javascript"})));
+let reqId = 0;
+const pending = new Map();
+
+function call(cmd, payload, transfer){
+  return new Promise((resolve, reject) => {
+    const id = ++reqId;
+    pending.set(id, {resolve, reject});
+    worker.postMessage(Object.assign({cmd, id}, payload || {}), transfer || []);
+  });
+}
+
+worker.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === "status"){ setStatus(m.text, "load"); $("boot-msg").innerHTML = m.text; return; }
+  if (m.type === "log"){ logLine(m.text); return; }
+  if (m.type === "row"){ addResultRow(m.payload); return; }
+  if (m.type === "ready"){ onReady(m.flags); return; }
+  if (m.type === "fatal"){
+    setStatus("Python ortamı yüklenemedi", "err");
+    $("boot-msg").innerHTML = "<span style='color:var(--warn)'>HATA: " + escapeHtml(m.text) +
+      "</span><br><br>İnternet bağlantınızı kontrol edip sayfayı yenileyin.";
+    return;
+  }
+  const p = pending.get(m.id);
+  if (!p) return;
+  pending.delete(m.id);
+  if (m.type === "error") p.reject(new Error(m.text));
+  else p.resolve(m.payload);
+};
+
+/* ── durum / günlük ── */
+function setStatus(text, cls){
+  const chip = $("status-chip");
+  chip.textContent = text;
+  chip.className = cls === "ready" ? "ready" : (cls === "err" ? "err" : "");
+  chip.id = "status-chip";
+}
+function logLine(text, cls){
+  const c = $("console");
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = text;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+function logErr(err){ logLine("HATA: " + (err && err.message ? err.message : String(err)), "err"); }
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function parseNum(v){
+  v = (v || "").trim().replace(",", ".");
+  if (v === "") return null;
+  const f = parseFloat(v);
+  if (isNaN(f)) throw new Error("Sayısal olmayan değer: '" + v + "'");
+  return f;
+}
+
+/* ── hazır olunca ── */
+let FLAGS = null;
+function onReady(flags){
+  FLAGS = flags;
+  setStatus("hazır — veri yükleyin", "ready");
+  $("boot").style.display = "none";
+  ["card-results","card-plot","card-log"].forEach(id => $(id).style.display = "block");
+  document.querySelectorAll(".act").forEach(b => b.disabled = false);
+  $("file-input").disabled = false;
+  const sc = $("sel-scenario");
+  flags.scenarios.forEach(s => { const o = document.createElement("option"); o.textContent = s; sc.appendChild(o); });
+  if (!flags.has_xgb){
+    $("ck-xgb").checked = false; $("ck-xgb").disabled = true;
+    logLine("Uyarı: XGBoost bu tarayıcı ortamında yüklenemedi; RF/SVR kullanılabilir.", "err");
+  }
+  $("lbl-iter").textContent = flags.has_skopt ? "BO deneme" : "Rastgele deneme";
+  if (!flags.has_skopt)
+    logLine("Uyarı: scikit-optimize kurulamadı; Bayesian yerine rastgele arama kullanılacak.", "err");
+  logLine("✓ Python ortamı hazır. 'Varsayılan veriyi yükle' ile başlayabilirsiniz.", "ok");
+}
+
+/* ── 1: veri yükleme ── */
+let fileBuffer = null;   // en son seçilen dosyanın kopyası (sayfa değişiminde yeniden gönderilir)
+let dataLoaded = false;
+
+async function sendFile(buf, name){
+  fileBuffer = buf;
+  $("file-name").textContent = name;
+  const r = await call("file", {buffer: buf.slice(0)}, [buf.slice(0)].map(b => b));
+  const sel = $("sheet-sel");
+  sel.innerHTML = "";
+  r.sheets.forEach(s => { const o = document.createElement("option"); o.textContent = s; sel.appendChild(o); });
+  if (r.sheets.includes("Classification")) sel.value = "Classification";
+  await loadSheet();
+}
+
+async function loadSheet(){
+  const sheet = $("sheet-sel").value;
+  if (!sheet){ logErr(new Error("Önce bir dosya seçin.")); return; }
+  setStatus("veri yükleniyor...", "load");
+  try{
+    if (fileBuffer) await call("file", {buffer: fileBuffer.slice(0)});
+    const r = await call("load", {sheet});
+    dataLoaded = true;
+    $("data-summary").innerHTML =
+      "<b>" + r.n_rows + "</b> satır, <b>" + r.n_cols + "</b> kolon yüklendi.<br>" +
+      "Hedef '" + TARGET_COL + "' " + (r.has_target ? "MEVCUT (dolu: " + r.target_n + ")" : "<span style='color:var(--warn)'>YOK!</span>");
+    buildColList(r.numeric_cols, r.default_selected);
+    fillFreeSelects(r.numeric_cols);
+    logLine("Yüklendi: " + r.n_rows + " satır, " + r.n_cols + " kolon ('" + sheet + "' sayfası).", "ok");
+    setStatus("veri hazır — filtre/eğitim yapılabilir", "ready");
+  } catch(err){ logErr(err); setStatus("veri yüklenemedi", "err"); }
+}
+
+$("btn-default").addEventListener("click", async () => {
+  setStatus("filtered_data.xlsx indiriliyor...", "load");
+  try{
+    const resp = await fetch("filtered_data.xlsx");
+    if (!resp.ok) throw new Error("filtered_data.xlsx bulunamadı (" + resp.status + ")");
+    const buf = await resp.arrayBuffer();
+    await sendFile(buf, "filtered_data.xlsx (varsayılan)");
+  } catch(err){ logErr(err); setStatus("hata", "err"); }
+});
+
+$("file-input").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  setStatus("dosya okunuyor...", "load");
+  try{
+    const buf = await f.arrayBuffer();
+    await sendFile(buf, f.name);
+  } catch(err){ logErr(err); setStatus("hata", "err"); }
+});
+
+$("btn-load").addEventListener("click", loadSheet);
+
+/* ── 2: filtre ── */
+function buildColList(cols, selected){
+  const box = $("col-list");
+  box.innerHTML = "";
+  cols.forEach(c => {
+    const row = document.createElement("label");
+    row.className = "ckrow";
+    const ck = document.createElement("input");
+    ck.type = "checkbox"; ck.value = c;
+    ck.checked = selected.includes(c);
+    const sp = document.createElement("span");
+    sp.textContent = c; sp.title = c;
+    row.appendChild(ck); row.appendChild(sp);
+    box.appendChild(row);
+  });
+}
+
+$("btn-filter").addEventListener("click", async () => {
+  if (!dataLoaded){ logErr(new Error("Önce veri yükleyin.")); return; }
+  const cols = Array.from($("col-list").querySelectorAll("input:checked")).map(i => i.value);
+  try{
+    const r = await call("filter", {
+      cols,
+      grubbs: $("ck-grubbs").checked, alpha: parseNum($("in-alpha").value),
+      iqr: $("ck-iqr").checked, k: parseNum($("in-k").value)});
+    r.report.split("\n").forEach(l => logLine(l));
+    $("data-summary").innerHTML += "<br>Filtre sonrası: <b>" + r.n + "</b> satır aktif.";
+  } catch(err){ logErr(err); }
+});
+
+$("btn-reset").addEventListener("click", async () => {
+  if (!dataLoaded) return;
+  try{
+    const r = await call("reset", {});
+    logLine(r.report, "ok");
+  } catch(err){ logErr(err); }
+});
+
+/* ── 3: eğitim ── */
+function addResultRow(p){
+  const tr = document.createElement("tr");
+  [p.model, p.cv_r2.toFixed(3), p.test_r2.toFixed(3), p.test_rmse.toFixed(2),
+   p.n_train, p.n_test].forEach(v => {
+    const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+  });
+  $("res-body").appendChild(tr);
+  registerModel(p.model);
+}
+
+const trainedModels = [];
+function registerModel(name){
+  if (trainedModels.includes(name)) return;
+  trainedModels.push(name);
+  [$("sel-plot-model"), $("sel-pred-model")].forEach(sel => {
+    const o = document.createElement("option"); o.textContent = name; sel.appendChild(o);
+  });
+}
+
+$("btn-train").addEventListener("click", async () => {
+  if (!dataLoaded){ logErr(new Error("Önce 1. bölümde veri yükleyin.")); return; }
+  const models = [];
+  if ($("ck-rf").checked) models.push("Random Forest");
+  if ($("ck-xgb").checked) models.push("XGBoost");
+  if ($("ck-svr").checked) models.push("SVR");
+  if (!models.length){ logErr(new Error("En az bir model seçin.")); return; }
+  const btn = $("btn-train");
+  btn.disabled = true; btn.textContent = "EĞİTİLİYOR...";
+  setStatus("eğitim sürüyor — günlüğü izleyin", "load");
+  $("res-body").innerHTML = "";
+  trainedModels.length = 0;
+  $("sel-plot-model").innerHTML = ""; $("sel-pred-model").innerHTML = "";
+  try{
+    await call("train", {
+      models,
+      scenario: $("sel-scenario").value,
+      fc_power: parseFloat($("sel-fcpow").value),
+      n_iter: Math.max(5, parseInt($("in-iter").value) || 15),
+      cv: Math.max(2, parseInt($("in-cv").value) || 3),
+      test_size: parseNum($("in-test").value) || 0.2,
+      rs: parseInt($("in-seed").value) || 42});
+    setStatus("eğitim tamamlandı", "ready");
+  } catch(err){ logErr(err); setStatus("eğitim hatası", "err"); }
+  btn.disabled = false; btn.textContent = "EĞİT";
+});
+
+/* ── grafikler ── */
+function fillFreeSelects(cols){
+  const fx = $("sel-free-x"), fy = $("sel-free-y"), fc = $("sel-free-c");
+  [fx, fy, fc].forEach(s => s.innerHTML = "");
+  const oNone = document.createElement("option"); oNone.textContent = "(yok)"; fc.appendChild(oNone);
+  cols.forEach(c => [fx, fy, fc].forEach(s => {
+    const o = document.createElement("option"); o.textContent = c; s.appendChild(o);
+  }));
+  if (cols.includes("concrete_strength_mpa")) fx.value = "concrete_strength_mpa";
+  if (cols.includes(TARGET_COL)) fy.value = TARGET_COL;
+  fc.value = "(yok)";
+}
+
+function axisOpts(lay){
+  if ($("ck-logx").checked) lay.xaxis.type = "log";
+  if ($("ck-logy").checked) lay.yaxis.type = "log";
+  const x0 = parseFloat($("in-xmin").value), x1 = parseFloat($("in-xmax").value);
+  const y0 = parseFloat($("in-ymin").value), y1 = parseFloat($("in-ymax").value);
+  const rng = (a, b, log) => log ? [Math.log10(a), Math.log10(b)] : [a, b];
+  if (!isNaN(x0) && !isNaN(x1)) lay.xaxis.range = rng(x0, x1, $("ck-logx").checked);
+  if (!isNaN(y0) && !isNaN(y1)) lay.yaxis.range = rng(y0, y1, $("ck-logy").checked);
+}
+
+function baseLayout(title, xl, yl){
+  return {
+    title: {text: title, font: {size: 13, family: "Barlow, sans-serif"}},
+    paper_bgcolor: "#1e2535", plot_bgcolor: "#141927",
+    font: {color: "#e8edf5", family: "Barlow, sans-serif", size: 12},
+    xaxis: {title: {text: xl}, gridcolor: "#2e3a52", zerolinecolor: "#3a4a68", automargin: true},
+    yaxis: {title: {text: yl}, gridcolor: "#2e3a52", zerolinecolor: "#3a4a68", automargin: true},
+    margin: {t: 48, r: 26, b: 54, l: 66},
+    legend: {bgcolor: "rgba(0,0,0,0)"},
+  };
+}
+const PLOT_CFG = {responsive: true, displaylogo: false};
+
+$("btn-plot").addEventListener("click", async () => {
+  const kind = $("sel-plot-kind").value;
+  const btn = $("btn-plot");
+  btn.disabled = true; btn.textContent = "hesaplanıyor...";
+  try{
+    const req = {kind};
+    if (kind === "scatter"){
+      req.x = $("sel-free-x").value; req.y = $("sel-free-y").value; req.c = $("sel-free-c").value;
+    } else {
+      req.model = $("sel-plot-model").value;
+      if (!req.model) throw new Error("Önce 3. bölümde model eğitin.");
+    }
+    const d = await call("plot", req);
+    let traces = [], lay;
+    if (kind === "parity"){
+      const mx = Math.max(...d.x, ...d.y) * 1.05;
+      traces = [
+        {x: d.x, y: d.y, mode: "markers", type: "scatter", name: "test verisi (n=" + d.n + ")",
+         marker: {size: 6, opacity: 0.6, color: "#4285f4"}},
+        {x: [0, mx], y: [0, mx], mode: "lines", name: "1:1",
+         line: {dash: "dash", color: "#f55f4e", width: 1.6}}];
+      lay = baseLayout(d.title, "Deneysel max bond stress (MPa)", "Tahmin (MPa)");
+    } else if (kind === "bo"){
+      traces = [
+        {x: d.iter, y: d.r2, mode: "markers", name: "deneme CV R²",
+         marker: {size: 6, opacity: 0.55, color: "#4285f4"}},
+        {x: d.iter, y: d.best, mode: "lines", name: "kümülatif en iyi",
+         line: {color: "#f0b24e", width: 2.2}}];
+      lay = baseLayout(d.title, "Deneme sırası", "CV R²");
+    } else if (kind === "importance"){
+      traces = [{x: d.mean, y: d.features, type: "bar", orientation: "h",
+                 error_x: {type: "data", array: d.std, color: "#8a97b0"},
+                 marker: {color: "#4285f4"}, name: "önem"}];
+      lay = baseLayout(d.title, "Permütasyon önemi (R² düşüşü)", "");
+      lay.margin.l = 250; lay.showlegend = false;
+    } else if (kind === "residual"){
+      const x0 = Math.min(...d.x), x1 = Math.max(...d.x);
+      traces = [
+        {x: d.x, y: d.y, mode: "markers", name: "artık",
+         marker: {size: 6, opacity: 0.6, color: "#4285f4"}},
+        {x: [x0, x1], y: [0, 0], mode: "lines", name: "sıfır",
+         line: {dash: "dash", color: "#f55f4e", width: 1.4}}];
+      lay = baseLayout(d.title, "Tahmin (MPa)", "Artık = deneysel − tahmin (MPa)");
+    } else { // scatter
+      const t = {x: d.x, y: d.y, mode: "markers", type: "scatter", name: "veri",
+                 marker: {size: 6, opacity: 0.65, color: "#34c77b"}};
+      if (d.c){
+        t.marker.color = d.c;
+        t.marker.colorscale = "Viridis";
+        t.marker.colorbar = {title: {text: d.clabel}, outlinewidth: 0};
+      }
+      traces = [t];
+      lay = baseLayout("Veri saçılımı (n=" + d.n + ")", d.xlabel, d.ylabel);
+      lay.showlegend = false;
+    }
+    axisOpts(lay);
+    Plotly.newPlot("plot-div", traces, lay, PLOT_CFG);
+  } catch(err){ logErr(err); }
+  btn.disabled = false; btn.textContent = "ÇİZ";
+});
+
+/* ── 4: tahmin ── */
+$("btn-predict").addEventListener("click", async () => {
+  const model = $("sel-pred-model").value;
+  if (!model){ logErr(new Error("Önce 3. bölümde model eğitin.")); return; }
+  try{
+    const row = {};
+    document.querySelectorAll(".pin").forEach(inp => { row[inp.dataset.col] = parseNum(inp.value); });
+    const r = await call("predict", {model, row});
+    $("pred-out").innerHTML = "τ<sub>max</sub> ≈ <span style='font-size:16px'>" + r.pred.toFixed(2) +
+      " MPa</span><br><span style='color:var(--txt2);font-weight:400'>" + r.model +
+      " · senaryo: " + r.scenario + " · Test R²=" + r.test_r2.toFixed(2) + "</span>";
+  } catch(err){ logErr(err); $("pred-out").textContent = "—"; }
+});
+
+/* ── başlat ── */
+worker.postMessage({cmd: "init"});
+</script>
+</body>
+</html>
