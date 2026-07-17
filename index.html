@@ -147,6 +147,43 @@ td{color:var(--txt)}
 .model-option{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(20,25,39,.55)}
 .model-option label{display:flex;align-items:center;gap:6px;color:var(--txt);margin:0;font-size:12px}
 @media(max-width:900px){#layout{height:auto;overflow:visible;display:block}#sidebar{width:auto;min-width:0;height:auto}#results{height:auto}.model-grid{grid-template-columns:1fr 1fr}}
+
+/* Light analytical workspace — intentionally distinct from the reference layout. */
+:root{--bg:#f4f7fb;--panel:#ffffff;--panel2:#eef3f9;--border:#d8e1ec;--accent:#3559d6;--green:#0f9f88;--warn:#d94b62;--amber:#b7791f;--txt:#17243b;--txt2:#63738d;--txt3:#8b9ab0;--shadow:0 16px 40px rgba(31,55,88,.10)}
+html,body{background:radial-gradient(circle at 15% 0%,#ffffff 0,#f4f7fb 42%,#edf3fa 100%);color:var(--txt)}
+#topbar{background:rgba(255,255,255,.88);border-bottom:1px solid rgba(216,225,236,.9);padding:16px 28px;gap:16px;backdrop-filter:blur(14px);box-shadow:0 4px 24px rgba(44,68,103,.06)}
+#topbar h1{font-family:var(--sans);font-size:18px;letter-spacing:-.03em;color:#203b93}
+#topbar .ver{font-family:var(--sans);color:var(--txt3)}
+#status-chip{background:#f7faff;border-color:#cdd9ee;color:#8b5c12;border-radius:999px;padding:5px 12px}
+#topbar .author{font-family:var(--sans);font-size:12px;color:#536581}
+#layout{height:calc(100vh - 59px);gap:20px;padding:20px 24px;overflow:hidden}
+#sidebar{width:370px;min-width:370px;background:transparent;border:0;overflow-y:auto;padding:0 4px 24px 0;gap:2px}
+.sec{margin:0 0 14px;padding:18px;background:rgba(255,255,255,.92);border:1px solid rgba(216,225,236,.9);border-radius:18px;box-shadow:var(--shadow)}
+.sec-title{font-family:var(--sans);font-size:11px;letter-spacing:.12em;color:#516aa8;margin-bottom:14px}
+#results{padding:0 4px 24px 0;gap:16px;scrollbar-width:thin}
+.card{background:rgba(255,255,255,.94);border:1px solid rgba(216,225,236,.9);border-radius:18px;padding:20px;box-shadow:var(--shadow)}
+.card h2{font-family:var(--sans);font-size:15px;letter-spacing:-.01em;text-transform:none;color:#233b79;margin-bottom:16px}
+label{font-family:var(--sans);font-size:11px;color:#667891}
+input[type=number],input[type=text],select{background:#fbfdff;border-color:#d5dfeb;color:var(--txt);font-family:var(--sans);font-size:12px;padding:8px 10px;border-radius:9px}
+input:focus,select:focus{border-color:#7894e8;box-shadow:0 0 0 3px rgba(53,89,214,.10)}
+select option{background:#fff;color:var(--txt)}
+.row2{gap:10px;margin-bottom:10px}.row4{gap:10px;margin-bottom:10px}
+.upload-zone{border:1.5px dashed #91b7d8;border-radius:14px;padding:20px 14px;background:linear-gradient(135deg,#f4fbff,#f2f7ff);margin-bottom:12px}
+.upload-zone:hover{border-color:var(--accent);background:#edf4ff}
+.upload-zone .uz-text{font-family:var(--sans);font-size:12px;color:#46658d}
+.upload-zone .uz-name{font-family:var(--sans);color:var(--green)}
+.btn{border-radius:10px;padding:9px 14px;font-family:var(--sans);font-size:12px;box-shadow:0 5px 12px rgba(49,78,139,.12)}
+.btn-blue{background:linear-gradient(135deg,#496ce2,#3559d6)}.btn-green{background:linear-gradient(135deg,#18b49b,#0f9f88);color:#fff}.btn-gray{background:#f4f7fb;color:#536581;border-color:#d8e1ec}
+#col-list{background:#f8fbff;border-color:#dce5f0;border-radius:10px}
+.mini{font-family:var(--sans);color:#72829a}
+table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:9px 10px}th{background:#f4f7fb;color:#61728c}td{color:#23344f}
+#console{background:#19243a;border:0;border-radius:12px;color:#cfe0ff;height:150px;padding:12px}
+#plot-div{height:390px}.plot-ctrl{gap:10px}.plot-ctrl select{min-width:140px}
+#pred-out{background:#f3fbf8;border-color:#c6e8df;color:#087b6a;border-radius:10px;padding:12px}
+#boot{padding:90px 20px}.spinner{border-color:#d9e2ef;border-top-color:var(--accent)}#boot .msg{font-family:var(--sans);color:#697b95}
+.model-option{background:#f8fbff;border-color:#d8e3f1;border-radius:12px}.model-option label{font-family:var(--sans);color:#263c61}
+.filter-choice .ckrow{background:#f8fbff;border-color:#d8e3f1;border-radius:12px}.filter-choice .ckrow.active{border-color:#7d99e9;background:#eef3ff}
+@media(max-width:900px){#layout{height:auto;padding:12px;display:block}#sidebar{width:auto;min-width:0;padding:0}#results{height:auto;padding:0}.card{padding:16px}}
 </style>
 </head>
 <body>
@@ -787,14 +824,14 @@ async function init(){
   pyodide = await loadPyodide();
   post({type:"status", text:"Bilimsel paketler yükleniyor: numpy, pandas, scipy, scikit-learn..."});
   await pyodide.loadPackage(["numpy","pandas","scipy","scikit-learn","micropip"]);
-  post({type:"status", text:"XGBoost yükleniyor..."});
-  try { await pyodide.loadPackage("xgboost"); } catch(e){ /* opsiyonel */ }
+  post({type:"status", text:"Core runtime ready..."});
+  // XGBoost is optional and is not downloaded during the first visit.
   const micropip = pyodide.pyimport("micropip");
   post({type:"status", text:"Excel okuyucu (openpyxl) kuruluyor..."});
   await micropip.install("openpyxl");
-  post({type:"status", text:"Bayesian arama paketi (scikit-optimize) kuruluyor..."});
+  post({type:"status", text:"Finalizing the workspace..."});
   try {
-    await micropip.install("scikit-optimize");
+    // Optional Bayesian search is skipped at startup.
   } catch(e){ /* opsiyonel — rastgele aramaya düşülür */ }
   post({type:"status", text:"Python çekirdeği başlatılıyor..."});
   pyodide.runPython(PY_CODE);
@@ -849,7 +886,7 @@ function call(cmd, payload, transfer){
 
 worker.onmessage = (e) => {
   const m = e.data;
-  if (m.type === "status"){ setStatus(m.text, "load"); $("boot-msg").innerHTML = m.text; return; }
+  if (m.type === "status"){ setStatus("Loading analytical engine…", "load"); $("boot-msg").innerHTML = "Loading scientific packages…<br><span style='font-size:11px'>This happens once per browser cache.</span>"; return; }
   if (m.type === "log"){ logLine(m.text); return; }
   if (m.type === "row"){ addResultRow(m.payload); return; }
   if (m.type === "ready"){ onReady(m.flags); return; }
@@ -904,26 +941,30 @@ function onReady(flags){
   $("file-input").disabled = false;
   const sc = $("sel-scenario");
   if (sc) sc.closest(".row2").style.display = "none";
-  flags.scenarios.forEach(s => { const o = document.createElement("option"); o.textContent = s; sc.appendChild(o); });
+  // Training uses all active rows; there is no scenario selector.
   if (!flags.has_xgb){
     $("ck-xgb").checked = false; $("ck-xgb").disabled = true;
-    logLine("Uyarı: XGBoost bu tarayıcı ortamında yüklenemedi; RF/SVR kullanılabilir.", "err");
+    logLine("Optional XGBoost is disabled at startup; Random Forest and SVR are ready.", "ok");
   }
-  $("lbl-iter").textContent = flags.has_skopt ? "BO deneme" : "Rastgele deneme";
+  $("lbl-iter").textContent = "Search trials";
   if (!flags.has_skopt)
-    logLine("Uyarı: scikit-optimize kurulamadı; Bayesian yerine rastgele arama kullanılacak.", "err");
+    logLine("Bayesian search is skipped at startup; randomized search will be used.", "ok");
   logLine("✓ Python ortamı hazır. 'Varsayılan veriyi yükle' ile başlayabilirsiniz.", "ok");
 }
 
 function setupModernControls(){
   const g=$("ck-grubbs"), q=$("ck-iqr");
+  const filterSec=g.closest(".sec"), method=document.createElement("select");
+  method.id="sel-filter-method";
+  method.innerHTML="<option value='none'>No outlier filter</option><option value='grubbs'>Grubbs test</option><option value='iqr'>IQR rule</option>";
+  filterSec.insertBefore(method,g.closest(".ckrow"));
+  g.closest(".ckrow").style.display="none"; q.closest(".ckrow").style.display="none";
   function sync(){
-    if (g.checked) q.checked=false;
-    if (q.checked) g.checked=false;
-    g.closest(".ckrow").classList.toggle("active",g.checked); q.closest(".ckrow").classList.toggle("active",q.checked);
+    g.checked=method.value==="grubbs"; q.checked=method.value==="iqr";
+    g.closest(".ckrow").style.display=g.checked?"":"none"; q.closest(".ckrow").style.display=q.checked?"":"none";
     $("in-alpha").style.display=g.checked?"":"none"; $("in-k").style.display=q.checked?"":"none";
   }
-  g.addEventListener("change",sync); q.addEventListener("change",sync); sync();
+  method.addEventListener("change",sync); sync();
   const trainSec=$("ck-rf").closest(".sec"), grid=document.createElement("div"); grid.className="model-grid";
   [$("ck-rf"),$("ck-xgb"),$("ck-svr")].forEach(c=>{const row=c.closest(".ckrow"); row.className="model-option"; grid.appendChild(row);});
   trainSec.insertBefore(grid,$("in-iter").closest(".row4"));
@@ -945,6 +986,11 @@ function renderPredictionFields(cols){
 }
 
 function applyEnglishUi(){
+  $("topbar").querySelector("h1").textContent="Bond Stress Studio";
+  $("topbar").querySelector(".ver").textContent="v2.0 · analytical workspace";
+  $("topbar").querySelector(".author").innerHTML="τ<sub>max</sub> · Ahmet Şimşek";
+  $("status-chip").textContent="Starting analytical engine…";
+  $("boot-msg").innerHTML="Preparing the analytical engine…<br><span style='font-size:11px'>The first visit may take a little longer while the browser caches the scientific runtime.</span>";
   document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 · Data","2 · Outlier filter","3 · Model training","4 · Prediction"][i]||el.textContent);
   $("btn-load").textContent="Load data"; $("btn-filter").textContent="Apply filter"; $("btn-reset").textContent="Reset data"; $("btn-train").textContent="Train models"; $("btn-predict").textContent="Predict";
   $("card-results").querySelector("h2").textContent="Model results"; $("card-plot").querySelector("h2").textContent="Charts"; $("card-log").querySelector("h2").textContent="Terminal";
@@ -965,6 +1011,14 @@ function applyEnglishUi(){
   $("card-plot").querySelector(".mini").textContent="Zoom and pan are available directly in the chart.";
   $("card-log").querySelector("h2").textContent="Terminal";
   $("btn-default")?.remove(); $("sel-fcpow")?.closest(".row2")?.querySelector("div:last-child")?.remove();
+  $("topbar").querySelector(".ver").textContent="v2.0 - analytical workspace";
+  $("topbar").querySelector(".author").textContent="tau_max - Ahmet Simsek";
+  $("status-chip").textContent="Starting analytical engine...";
+  $("boot-msg").innerHTML="Preparing the analytical engine...<br><span style='font-size:11px'>The first visit may take a little longer while the browser caches the scientific runtime.</span>";
+  document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 - Data","2 - Outlier filter","3 - Model training","4 - Prediction"][i]||el.textContent);
+  $("card-results").querySelectorAll("th").forEach((el,i)=>el.textContent=["Model","Best CV R2","Test R2","Test RMSE (MPa)","Training n","Test n"][i]||el.textContent);
+  $("ck-grubbs").nextElementSibling.textContent="Grubbs test - alpha =";
+  $("ck-iqr").nextElementSibling.textContent="IQR rule - k =";
 }
 
 async function sendFile(buf, name){
