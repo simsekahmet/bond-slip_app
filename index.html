@@ -229,6 +229,7 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
 
     <div class="sec">
       <div class="sec-title">3 - Model training</div>
+      <div style="margin-bottom:8px"><label>Scenario (data subset)</label><select id="sel-scenario"></select></div>
       <div class="ckrow"><input type="checkbox" id="ck-rf" checked><span class="lbl">Random Forest</span></div>
       <div class="ckrow"><input type="checkbox" id="ck-xgb" checked><span class="lbl">XGBoost</span></div>
       <div class="ckrow"><input type="checkbox" id="ck-svr"><span class="lbl">SVR</span></div>
@@ -391,6 +392,16 @@ SCENARIOS = [
     {"scenario_name": "deformed_fc_gte55_tr_1", "filters": {"bar_type": "deformed", "concrete_strength_mpa": (55, None), "transverse_reinforcement": 1}},
 ]
 SCENARIO_MAP = {s["scenario_name"]: s["filters"] for s in SCENARIOS}
+SCENARIO_LABEL = {
+    "tum_veri": "All data", "plain_all": "Plain - all", "deformed_all": "Deformed - all",
+    "plain_fc_0_20": "Plain, fc<=20", "plain_fc_gte20": "Plain, fc>20",
+    "deformed_fc_0_55": "Deformed, fc<=55", "deformed_fc_gte55": "Deformed, fc>55",
+    "deformed_tr_1": "Deformed, transv.", "deformed_tr_0": "Deformed, no transv.",
+    "deformed_fc_0_55_tr_0": "Deformed, fc<=55, no transv.",
+    "deformed_fc_0_55_tr_1": "Deformed, fc<=55, transv.",
+    "deformed_fc_gte55_tr_0": "Deformed, fc>55, no transv.",
+    "deformed_fc_gte55_tr_1": "Deformed, fc>55, transv.",
+}
 
 DF_RAW = None
 DF = None
@@ -446,6 +457,28 @@ def filter_scenario(df, filters):
             data = data[mask]
         else:
             data = data[data[col] == rule]
+    return data.reset_index(drop=True)
+
+
+def apply_scenario(df, scenario):
+    """SCENARIO_MAP filtresini uygular; eksik kolonlari atlar, bar_type'i
+    buyuk/kucuk harf duyarsiz eslestirir (kullanici verisi degisebilir)."""
+    filters = SCENARIO_MAP.get(scenario, {})
+    data = df.copy()
+    for col, rule in filters.items():
+        if rule is None:
+            continue
+        if col == "bar_type":
+            if "bar_type" not in data.columns:
+                pylog("   note: no 'bar_type' column — scenario bar-type filter skipped.")
+                continue
+            bt = data["bar_type"].astype(str).str.lower().str.strip()
+            data = data[bt.str.contains(str(rule).lower())]
+            continue
+        if col not in data.columns:
+            pylog("   note: column '%s' missing — that scenario rule skipped." % col)
+            continue
+        data = filter_scenario(data, {col: rule})
     return data.reset_index(drop=True)
 
 
@@ -577,8 +610,7 @@ def sheets_from_file(arg):
 
 
 def load_data(arg):
-    global DF_RAW, DF, SHAP_CACHE
-    SHAP_CACHE = None
+    global DF_RAW, DF
     m = json.loads(arg)
     is_csv = m.get("file_type") == "csv" or str(m.get("file_name", "")).lower().endswith(".csv")
     if m.get("records") is not None:
@@ -615,8 +647,7 @@ def load_data(arg):
 
 
 def apply_filters(arg):
-    global DF, SHAP_CACHE
-    SHAP_CACHE = None
+    global DF
     m = json.loads(arg)
     if DF_RAW is None:
         raise RuntimeError("Upload data first.")
@@ -647,8 +678,7 @@ def apply_filters(arg):
 
 
 def reset_filter(arg):
-    global DF, SHAP_CACHE
-    SHAP_CACHE = None
+    global DF
     if DF_RAW is None:
         raise RuntimeError("Upload data first.")
     DF = DF_RAW.copy()
@@ -662,7 +692,11 @@ def train(arg):
         raise RuntimeError("Upload data first.")
     if ACTIVE_TARGET_COL not in DF.columns:
         raise RuntimeError("The selected target column is not available in the active data.")
-    d = DF.copy()
+    scenario = cfg.get("scenario", "tum_veri")
+    d = apply_scenario(DF, scenario)
+    if len(d) == 0:
+        raise RuntimeError("Scenario '%s' matched no rows in the uploaded data "
+                           "(is the 'bar_type' / 'concrete_strength_mpa' column present?)." % scenario)
     y = pd.to_numeric(d[ACTIVE_TARGET_COL], errors="coerce")
     keep = y.notna() & (y >= 0)
     X = d.loc[keep, ACTIVE_FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
@@ -671,7 +705,7 @@ def train(arg):
     if "concrete_strength_mpa" in X.columns:
         X["concrete_strength_mpa"] = np.power(X["concrete_strength_mpa"].clip(lower=0), float(cfg.get("fc_power", 1.0)))
     y = y[keep].astype(float)
-    pylog("Training on %d samples with %d input feature(s)." % (len(y), len(ACTIVE_FEATURE_COLS)))
+    pylog("Scenario '%s': %d samples with %d input feature(s)." % (scenario, len(y), len(ACTIVE_FEATURE_COLS)))
     if len(y) < max(10, int(cfg["cv"]) * 3):
         raise RuntimeError("Not enough valid rows for the selected cross-validation setting.")
     Xtr, Xte, ytr, yte = train_test_split(
@@ -724,9 +758,10 @@ def train(arg):
                              bo_params=bo_params,
                              cv_r2=float(search.best_score_), test_r2=r2,
                              test_rmse=rmse, X_test=Xte, y_test=yte, y_pred=yp,
+                             X_train=Xtr, y_train=ytr,
                              best_params=best_params,
                              fc_power=float(cfg.get("fc_power", 1.0)),
-                             scenario="All active data",
+                             scenario=SCENARIO_LABEL.get(scenario, scenario),
                              feature_cols=ACTIVE_FEATURE_COLS[:], target_col=ACTIVE_TARGET_COL)
         pylog("   best CV R²=%.3f | Test R²=%.3f  RMSE=%.2f MPa" % (
             float(search.best_score_), r2, rmse))
@@ -758,7 +793,7 @@ def plot_data(arg):
             out["clabel"] = cc
         return json.dumps(out)
     if kind in ("shap_beeswarm", "shap_bar"):
-        return _shap_payload(kind)
+        return _shap_payload(kind, m["model"])
     name = m["model"]
     if name not in RESULTS:
         raise RuntimeError("Train a model first.")
@@ -840,62 +875,73 @@ def plot_data(arg):
     raise ValueError(kind)
 
 
-SHAP_CACHE = None
+def _shapley_sampling(predict, X, background, n_samples=60, M=40, seed=42):
+    """Model-agnostik Shapley ornekleme (Strumbelj-Kononenko): rastgele
+    permutasyonlarda ozellikler tek tek eklenir, marjinal katki ilgili
+    ozellige atfedilir. Egitilen pipeline'a (herhangi bir model) uygulanir."""
+    rng = np.random.default_rng(seed)
+    n = int(min(len(X), n_samples))
+    idx = rng.choice(len(X), n, replace=False) if len(X) > n else np.arange(len(X))
+    Xs = np.asarray(X, dtype=float)[idx]
+    d = Xs.shape[1]
+    bg = np.asarray(background, dtype=float)
+    phi = np.zeros((n, d))
+    for _ in range(M):
+        ref = bg[rng.integers(0, len(bg), size=n)]      # her ornek icin rastgele referans
+        x_curr = ref.copy()
+        f_prev = predict(x_curr)
+        for j in rng.permutation(d):
+            x_next = x_curr.copy()
+            x_next[:, j] = Xs[:, j]
+            f_next = predict(x_next)
+            phi[:, j] += (f_next - f_prev)
+            x_curr, f_prev = x_next, f_next
+    phi /= M
+    return Xs, phi
 
 
-def _shap_payload(kind):
-    """07 defteri hucre 4 karsiligi: sabit parametreli XGBoost egitilir,
-    SHAP degerleri XGBoost'un yerlesik TreeSHAP'i ile hesaplanir
-    (pred_contribs=True; shap kutuphanesiyle ayni algoritma)."""
-    global SHAP_CACHE
-    if DF is None:
-        raise RuntimeError("Upload data first.")
-    try:
-        from xgboost import XGBRegressor as _XGB, DMatrix as _DM
-    except Exception:
-        raise RuntimeError("SHAP needs the XGBoost package, which could not be loaded in this browser.")
-    if SHAP_CACHE is None:
-        d = DF.copy()
-        y = pd.to_numeric(d[ACTIVE_TARGET_COL], errors="coerce")
-        keep = y.notna() & (y >= 0)
-        X = d.loc[keep, ACTIVE_FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
-        if TR_FLAG in X.columns:
-            X = apply_tr_logic(X)
-        y = y[keep].astype(float)
-        if len(y) < 30:
-            raise RuntimeError("Not enough valid rows for SHAP analysis.")
-        Xtr, Xte, ytr, yte = train_test_split(X.values, y.values,
-                                              test_size=0.20, random_state=42)
-        model = _XGB(objective="reg:squarederror", n_estimators=400,
-                     learning_rate=0.05, max_depth=4, subsample=0.8,
-                     colsample_bytree=0.9, reg_lambda=1.0,
-                     random_state=42, n_jobs=1)
-        model.fit(Xtr, ytr)
-        r2 = float(r2_score(yte, model.predict(Xte)))
-        contrib = model.get_booster().predict(_DM(Xte), pred_contribs=True)
-        sv = np.asarray(contrib)[:, :-1]      # son kolon = bias terimi
-        SHAP_CACHE = (Xte, sv, r2, list(ACTIVE_FEATURE_COLS))
-    Xte, sv, r2, feats = SHAP_CACHE
-    mean_abs = np.abs(sv).mean(axis=0)
+def _shap_payload(kind, model_name):
+    """SHAP degerleri KULLANICININ SECTIGI egitilmis model uzerinde hesaplanir
+    (07 defteriyle ayni fikir; model-agnostik oldugu icin RF/XGBoost/SVR hepsinde
+    calisir ve baslikta secilen model gorunur)."""
+    if model_name not in RESULTS:
+        raise RuntimeError("Train a model first.")
+    r = RESULTS[model_name]
+    est = r["estimator"]
+    feats = r["feature_cols"]
+    X = np.asarray(r["X_test"], dtype=float)
+    bg = np.asarray(r.get("X_train", r["X_test"]), dtype=float)
+    if X.shape[0] < 5:
+        raise RuntimeError("Not enough test rows for SHAP analysis.")
+    cache = r.get("_shap_cache")
+    if cache is None:
+        pylog("SHAP: computing Shapley values for %s ..." % model_name)
+        predict = lambda A: np.asarray(est.predict(A), dtype=float)
+        Xs, phi = _shapley_sampling(predict, X, bg)
+        r["_shap_cache"] = cache = (Xs, phi)
+        pylog("SHAP: done (%d samples)." % Xs.shape[0])
+    Xs, phi = cache
+    r2 = r["test_r2"]
+    mean_abs = np.abs(phi).mean(axis=0)
     order = np.argsort(mean_abs)[::-1]
     if kind == "shap_bar":
         o2 = order[::-1]                       # yatay barda en onemli en ustte
         return json.dumps({"features": [feats[i] for i in o2],
                            "mean": [float(mean_abs[i]) for i in o2],
-                           "title": "SHAP importance — XGBoost (Test R²=%.3f)" % r2})
+                           "title": "SHAP importance — %s (Test R²=%.3f)" % (model_name, r2)})
     rows = []
     for i in order:
-        col = Xte[:, i].astype(float)
+        col = Xs[:, i].astype(float)
         fin = np.isfinite(col)
         lo = float(col[fin].min()) if fin.any() else 0.0
         hi = float(col[fin].max()) if fin.any() else 1.0
         span = (hi - lo) if hi > lo else 1.0
         rows.append({"name": feats[i],
-                     "shap": [float(v) for v in sv[:, i]],
+                     "shap": [float(v) for v in phi[:, i]],
                      "val": [(float((v - lo) / span) if np.isfinite(v) else 0.5)
                              for v in col]})
-    return json.dumps({"rows": rows, "n": int(sv.shape[0]),
-                       "title": "SHAP summary — XGBoost (Test R²=%.3f, n=%d)" % (r2, sv.shape[0])})
+    return json.dumps({"rows": rows, "n": int(Xs.shape[0]),
+                       "title": "SHAP summary — %s (Test R²=%.3f, n=%d)" % (model_name, r2, Xs.shape[0])})
 
 
 def predict_one(arg):
@@ -986,10 +1032,6 @@ self.onmessage = async (e) => {
   }
   try {
     if (!pyodide) throw new Error("Python ortamı henüz hazır değil.");
-    if (m.cmd === "plot" && typeof m.kind === "string" && m.kind.indexOf("shap") === 0){
-      // SHAP, XGBoost'un yerlesik TreeSHAP'ini kullanir — paketi gerektiginde indir.
-      try { await pyodide.loadPackage("xgboost"); } catch(e){}
-    }
     if (m.buffer) pyodide.FS.writeFile("/data.xlsx", new Uint8Array(m.buffer));
     pyodide.globals.set("_arg", JSON.stringify(m));
     const out = pyodide.runPython(HANDLERS[m.cmd] + "(_arg)");
@@ -1100,9 +1142,7 @@ function onReady(flags){
   ["card-results","card-plot","card-log"].forEach(id => $(id).style.display = "block");
   document.querySelectorAll(".act").forEach(b => b.disabled = false);
   $("file-input").disabled = false;
-  const sc = $("sel-scenario");
-  if (sc) sc.closest(".row2").style.display = "none";
-  // Training uses all active rows; there is no scenario selector.
+  populateScenarios(flags.scenarios || []);
   if (!flags.has_xgb){
     $("ck-xgb").checked = false; $("ck-xgb").disabled = false;
     logLine("Optional XGBoost is disabled at startup; Random Forest and SVR are ready.", "ok");
@@ -1111,6 +1151,34 @@ function onReady(flags){
   if (!flags.has_skopt)
     logLine("Bayesian search is skipped at startup; randomized search will be used.", "ok");
   logLine("Analytical engine ready. Upload a CSV or Excel file to begin.", "ok");
+}
+
+// Senaryo anahtarlarini okunabilir etiketlere cevir (07 defteriyle ayni alt kumeler).
+const SCENARIO_LABELS = {
+  tum_veri: "All data",
+  plain_all: "Plain — all",
+  deformed_all: "Deformed — all",
+  plain_fc_0_20: "Plain — fc ≤ 20 MPa",
+  plain_fc_gte20: "Plain — fc > 20 MPa",
+  deformed_fc_0_55: "Deformed — fc ≤ 55 MPa",
+  deformed_fc_gte55: "Deformed — fc > 55 MPa",
+  deformed_tr_1: "Deformed — with transverse reinf.",
+  deformed_tr_0: "Deformed — no transverse reinf.",
+  deformed_fc_0_55_tr_0: "Deformed — fc ≤ 55, no transv.",
+  deformed_fc_0_55_tr_1: "Deformed — fc ≤ 55, with transv.",
+  deformed_fc_gte55_tr_0: "Deformed — fc > 55, no transv.",
+  deformed_fc_gte55_tr_1: "Deformed — fc > 55, with transv.",
+};
+function populateScenarios(scenarios){
+  const sel = $("sel-scenario");
+  if (!sel) return;
+  sel.innerHTML = "";
+  scenarios.forEach(s => {
+    const o = document.createElement("option");
+    o.value = s; o.textContent = SCENARIO_LABELS[s] || s;
+    sel.appendChild(o);
+  });
+  sel.value = "tum_veri";
 }
 
 function setupModernControls(){
@@ -1145,6 +1213,17 @@ function syncPlotControls(){
     const f = s.closest(".fld");
     if (f) f.style.display = show ? "" : "none";
   });
+  // 3D surface iki FARKLI girdi ozelligi ister; varsayilan Y=hedef gecersizdir.
+  if (kind === "surface3d"){
+    const fx = $("sel-free-x"), fy = $("sel-free-y");
+    const feats = (window.__featureCols || []).filter(c =>
+      Array.from(fx.options).some(o => o.value === c));
+    if (feats.length >= 2){
+      if (!feats.includes(fx.value)) fx.value = feats[0];
+      if (!feats.includes(fy.value) || fy.value === fx.value)
+        fy.value = feats.find(c => c !== fx.value) || feats[1];
+    }
+  }
 }
 
 /* ── 1: veri yükleme ── */
@@ -1245,6 +1324,7 @@ async function loadSheet(){
     buildColList(r.numeric_cols, r.default_selected);
     fillFreeSelects(r.numeric_cols);
     renderPredictionFields(r.feature_cols || []);
+    window.__featureCols = r.feature_cols || [];
     ACTIVE_TARGET_COL = r.target_col || TARGET_COL;
     logLine("Loaded " + r.n_rows + " rows and " + r.n_cols + " columns from '" + sheet + "'.", "ok");
     setStatus("Data ready — filtering and training available", "ready");
@@ -1359,6 +1439,7 @@ $("btn-train").addEventListener("click", async () => {
     }
     await call("train", {
       models,
+      scenario: ($("sel-scenario") && $("sel-scenario").value) || "tum_veri",
       fc_power: 1.0,
       n_iter: Math.max(1, parseInt($("in-iter").value) || 15),
       cv: Math.max(2, parseInt($("in-cv").value) || 3),
@@ -1430,8 +1511,6 @@ $("btn-plot").addEventListener("click", async () => {
     const req = {kind};
     if (kind === "scatter"){
       req.x = $("sel-free-x").value; req.y = $("sel-free-y").value;
-    } else if (kind.indexOf("shap") === 0){
-      // SHAP kendi XGBoost'unu egitir; secili modele ihtiyac duymaz.
     } else {
       req.model = $("sel-plot-model").value;
       if (kind === "surface3d") { req.x=$("sel-free-x").value; req.y=$("sel-free-y").value; }
