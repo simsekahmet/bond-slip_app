@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -40,12 +40,12 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--sa
   overflow-y:auto;background:var(--panel);
   border-right:1px solid var(--border);display:flex;flex-direction:column;
 }
-.sec{border-bottom:1px solid var(--border);padding:11px 13px;flex-shrink:0}
+.sec{margin:10px 12px 0;padding:14px;background:linear-gradient(145deg,rgba(37,45,64,.98),rgba(30,37,53,.98));border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 18px rgba(0,0,0,.12);flex-shrink:0}
 .sec-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;
   text-transform:uppercase;color:var(--accent);margin-bottom:9px}
 #results{flex:1;min-width:0;height:100%;overflow-y:auto;padding:14px;
   display:flex;flex-direction:column;gap:14px}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:0 8px 22px rgba(0,0,0,.12)}
 .card h2{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:var(--accent);margin-bottom:10px}
 
@@ -138,6 +138,15 @@ td{color:var(--txt)}
 }
 @keyframes spin{to{transform:rotate(360deg)}}
 #boot .msg{font-family:var(--mono);font-size:12px;color:var(--txt2);max-width:560px;line-height:1.6}
+.section-note{font-size:11px;color:var(--txt2);line-height:1.5;margin-top:8px}
+.conditional{display:none}
+.filter-choice{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.filter-choice .ckrow{margin:0;padding:9px;border:1px solid var(--border);border-radius:8px;background:rgba(20,25,39,.55)}
+.filter-choice .ckrow.active{border-color:var(--accent);background:rgba(66,133,244,.12)}
+.model-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:8px 0 10px}
+.model-option{padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(20,25,39,.55)}
+.model-option label{display:flex;align-items:center;gap:6px;color:var(--txt);margin:0;font-size:12px}
+@media(max-width:900px){#layout{height:auto;overflow:visible;display:block}#sidebar{width:auto;min-width:0;height:auto}#results{height:auto}.model-grid{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -155,8 +164,6 @@ td{color:var(--txt)}
 
     <div class="sec">
       <div class="sec-title">1 · Veri</div>
-      <button class="btn btn-green btn-sm act" id="btn-default" disabled>Varsayılan veriyi yükle (filtered_data.xlsx)</button>
-      <div style="height:8px"></div>
       <label class="upload-zone" for="file-input">
         <div class="uz-text">Kendi Excel dosyanı seç / sürükle (.xlsx)</div>
         <div class="uz-name" id="file-name">—</div>
@@ -183,10 +190,6 @@ td{color:var(--txt)}
 
     <div class="sec">
       <div class="sec-title">3 · Eğitim</div>
-      <div class="row2">
-        <div><label>Senaryo</label><select id="sel-scenario"></select></div>
-        <div><label>fc üssü (özellik)</label><select id="sel-fcpow"><option>1.0</option><option>0.5</option><option>0.25</option></select></div>
-      </div>
       <div class="ckrow"><input type="checkbox" id="ck-rf" checked><span class="lbl">Random Forest</span></div>
       <div class="ckrow"><input type="checkbox" id="ck-xgb" checked><span class="lbl">XGBoost</span></div>
       <div class="ckrow"><input type="checkbox" id="ck-svr"><span class="lbl">SVR</span></div>
@@ -327,6 +330,8 @@ FEATURE_COLS = [
     "transverse_reinforcement_bar_diameter_mm",
 ]
 TARGET_COL = "maximum_bond_stress_mpa"
+ACTIVE_FEATURE_COLS = FEATURE_COLS[:]
+ACTIVE_TARGET_COL = TARGET_COL
 TR_FLAG = "transverse_reinforcement"
 TR_GEO_COLS = ["transverse_reinforcement_mm",
                "transverse_reinforcement_bar_diameter_mm"]
@@ -357,6 +362,20 @@ RESULTS = {}
 def flags():
     return json.dumps({"has_xgb": HAS_XGB, "has_skopt": HAS_SKOPT,
                        "scenarios": [s["scenario_name"] for s in SCENARIOS]})
+
+def resolve_schema(df):
+    """Use the standard schema when available, otherwise support arbitrary numeric X/y data."""
+    global ACTIVE_FEATURE_COLS, ACTIVE_TARGET_COL
+    numeric = [c for c in df.columns if pd.to_numeric(df[c], errors="coerce").notna().sum() > 0]
+    target = TARGET_COL if TARGET_COL in df.columns else (numeric[-1] if len(numeric) >= 2 else None)
+    if target is None:
+        raise RuntimeError("The workbook must contain at least one numeric input column and one numeric target column.")
+    features = [c for c in FEATURE_COLS if c in df.columns]
+    if not features:
+        features = [c for c in numeric if c != target]
+    ACTIVE_FEATURE_COLS = features
+    ACTIVE_TARGET_COL = target
+    return features, target
 
 
 def _num_list(s):
@@ -518,16 +537,25 @@ def load_data(arg):
     global DF_RAW, DF
     m = json.loads(arg)
     DF_RAW = pd.read_excel("/data.xlsx", sheet_name=m["sheet"])
+    # Accept mm-based embedment/cover columns and normalize them internally by db.
+    if "bar_diameter_mm" in DF_RAW.columns:
+        db = pd.to_numeric(DF_RAW["bar_diameter_mm"], errors="coerce")
+        for mm, dbcol in [("embedment_length_mm", "embedment_length_db"), ("concrete_cover_mm", "concrete_cover_db")]:
+            if mm in DF_RAW.columns and dbcol not in DF_RAW.columns:
+                DF_RAW[dbcol] = pd.to_numeric(DF_RAW[mm], errors="coerce") / db.replace(0, np.nan)
     DF = DF_RAW.copy()
+    features, target = resolve_schema(DF_RAW)
     numeric = [c for c in DF_RAW.columns
                if pd.to_numeric(DF_RAW[c], errors="coerce").notna().sum() > 0]
-    has_t = TARGET_COL in DF_RAW.columns
-    t_n = int(pd.to_numeric(DF_RAW[TARGET_COL], errors="coerce").notna().sum()) if has_t else 0
+    has_t = target in DF_RAW.columns
+    t_n = int(pd.to_numeric(DF_RAW[target], errors="coerce").notna().sum()) if has_t else 0
     return json.dumps({
         "n_rows": int(len(DF_RAW)),
         "n_cols": int(len(DF_RAW.columns)),
         "numeric_cols": numeric,
-        "default_selected": [c for c in numeric if c in DEFAULT_FILTER_COLS],
+        "default_selected": [c for c in numeric if c in DEFAULT_FILTER_COLS] or numeric,
+        "feature_cols": features,
+        "target_col": target,
         "has_target": has_t,
         "target_n": t_n,
     })
@@ -537,10 +565,10 @@ def apply_filters(arg):
     global DF
     m = json.loads(arg)
     if DF_RAW is None:
-        raise RuntimeError("Once veri yukleyin.")
+        raise RuntimeError("Upload data first.")
     cols = m["cols"]
     if not cols:
-        raise RuntimeError("En az bir kolon secin.")
+        raise RuntimeError("Select at least one column.")
     df = DF_RAW.copy()
     report = ["Baslangic: %d satir" % len(df)]
     if m["grubbs"]:
@@ -567,7 +595,7 @@ def apply_filters(arg):
 def reset_filter(arg):
     global DF
     if DF_RAW is None:
-        raise RuntimeError("Once veri yukleyin.")
+        raise RuntimeError("Upload data first.")
     DF = DF_RAW.copy()
     return json.dumps({"report": "Filtre sifirlandi; ham veri (%d satir) aktif." % len(DF),
                        "n": int(len(DF))})
@@ -576,20 +604,21 @@ def reset_filter(arg):
 def train(arg):
     cfg = json.loads(arg)
     if DF is None:
-        raise RuntimeError("Once veri yukleyin.")
-    if TARGET_COL not in DF.columns:
-        raise RuntimeError("Veride '%s' kolonu yok." % TARGET_COL)
-    d = filter_scenario(DF, SCENARIO_MAP[cfg["scenario"]])
-    y = pd.to_numeric(d[TARGET_COL], errors="coerce")
+        raise RuntimeError("Upload data first.")
+    if ACTIVE_TARGET_COL not in DF.columns:
+        raise RuntimeError("The selected target column is not available in the active data.")
+    d = DF.copy()
+    y = pd.to_numeric(d[ACTIVE_TARGET_COL], errors="coerce")
     keep = y.notna() & (y >= 0)
-    X = d.loc[keep, FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
-    X = apply_tr_logic(X)
-    X["concrete_strength_mpa"] = np.power(
-        X["concrete_strength_mpa"].clip(lower=0), float(cfg["fc_power"]))
+    X = d.loc[keep, ACTIVE_FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
+    if TR_FLAG in X.columns:
+        X = apply_tr_logic(X)
+    if "concrete_strength_mpa" in X.columns:
+        X["concrete_strength_mpa"] = np.power(X["concrete_strength_mpa"].clip(lower=0), float(cfg.get("fc_power", 1.0)))
     y = y[keep].astype(float)
-    pylog("Senaryo '%s': %d numune (fc ussu=%g)." % (cfg["scenario"], len(y), float(cfg["fc_power"])))
-    if len(y) < 30:
-        raise RuntimeError("Egitim icin veri cok az (<30). Senaryoyu genisletin.")
+    pylog("Training on %d samples with %d input feature(s)." % (len(y), len(ACTIVE_FEATURE_COLS)))
+    if len(y) < max(10, int(cfg["cv"]) * 3):
+        raise RuntimeError("Not enough valid rows for the selected cross-validation setting.")
     Xtr, Xte, ytr, yte = train_test_split(
         X.values, y.values, test_size=float(cfg["test_size"]),
         random_state=int(cfg["rs"]))
@@ -597,7 +626,7 @@ def train(arg):
     trained = []
     for name in cfg["models"]:
         pylog("")
-        pylog("── %s: %d deneme × %d-kat CV (%s) ..." % (
+        pylog("-- %s: %d trials × %d-fold CV (%s) ..." % (
             name, n_iter, cv, "Bayesian" if HAS_SKOPT else "rastgele"))
         pipe, space = model_space(name, rs)
         if HAS_SKOPT:
@@ -605,7 +634,7 @@ def train(arg):
                                    scoring="r2", random_state=rs, n_jobs=1,
                                    refit=True)
             def _cb(res):
-                pylog("   deneme %d/%d  |  kumulatif en iyi CV R² = %.3f" % (
+                pylog("   trial %d/%d  |  best cumulative CV R² = %.3f" % (
                     len(res.x_iters), n_iter, -res.fun))
                 return False
             search.fit(Xtr, ytr, callback=_cb)
@@ -628,17 +657,18 @@ def train(arg):
                              cv_r2=float(search.best_score_), test_r2=r2,
                              test_rmse=rmse, X_test=Xte, y_test=yte, y_pred=yp,
                              best_params=best_params,
-                             fc_power=float(cfg["fc_power"]),
-                             scenario=cfg["scenario"])
-        pylog("   en iyi CV R²=%.3f | Test R²=%.3f  RMSE=%.2f MPa" % (
+                             fc_power=float(cfg.get("fc_power", 1.0)),
+                             scenario="All active data",
+                             feature_cols=ACTIVE_FEATURE_COLS[:], target_col=ACTIVE_TARGET_COL)
+        pylog("   best CV R²=%.3f | Test R²=%.3f  RMSE=%.2f MPa" % (
             float(search.best_score_), r2, rmse))
-        pylog("   en iyi parametreler: %s" % best_params)
+        pylog("   best parameters: %s" % best_params)
         pyrow(json.dumps({"model": name, "cv_r2": float(search.best_score_),
                           "test_r2": r2, "test_rmse": rmse,
                           "n_train": int(len(ytr)), "n_test": int(len(yte))}))
         trained.append(name)
     pylog("")
-    pylog("OK ✓ Egitim bitti — Grafik panelinden gorselleri, Tahmin bolumunden tekil tahmini kullanin.")
+    pylog("OK — training complete. Review charts and use the prediction panel.")
     return json.dumps({"trained": trained})
 
 
@@ -647,10 +677,10 @@ def plot_data(arg):
     kind = m["kind"]
     if kind == "scatter":
         if DF is None:
-            raise RuntimeError("Once veri yukleyin.")
+            raise RuntimeError("Upload data first.")
         xc, yc, cc = m["x"], m["y"], m.get("c")
         if not xc or not yc:
-            raise RuntimeError("X ve Y kolonlarini secin.")
+            raise RuntimeError("Select X and Y variables.")
         x = pd.to_numeric(DF[xc], errors="coerce")
         y = pd.to_numeric(DF[yc], errors="coerce")
         out = {"x": _num_list(x), "y": _num_list(y), "xlabel": xc, "ylabel": yc,
@@ -661,7 +691,7 @@ def plot_data(arg):
         return json.dumps(out)
     name = m["model"]
     if name not in RESULTS:
-        raise RuntimeError("Once model egitin (3. bolum).")
+        raise RuntimeError("Train a model first.")
     r = RESULTS[name]
     if kind == "parity":
         return json.dumps({
@@ -682,7 +712,7 @@ def plot_data(arg):
                                      n_repeats=10, random_state=42, scoring="r2")
         order = np.argsort(imp.importances_mean)
         return json.dumps({
-            "features": [FEATURE_COLS[i] for i in order],
+            "features": [ACTIVE_FEATURE_COLS[i] for i in order],
             "mean": [float(imp.importances_mean[i]) for i in order],
             "std": [float(imp.importances_std[i]) for i in order],
             "title": "%s — ozellik onemi (test setinde)" % name})
@@ -693,6 +723,25 @@ def plot_data(arg):
             "y": [float(v) for v in res],
             "title": "%s — artik dagilimi (ort=%.2f, std=%.2f MPa)" % (
                 name, float(res.mean()), float(res.std()))})
+    if kind == "surface3d":
+        xc, yc = m.get("x"), m.get("y")
+        if xc not in ACTIVE_FEATURE_COLS or yc not in ACTIVE_FEATURE_COLS or xc == yc:
+            raise RuntimeError("Choose two different numeric input features for the 3D surface.")
+        base = {}
+        for c in ACTIVE_FEATURE_COLS:
+            vals = pd.to_numeric(DF[c], errors="coerce").dropna()
+            base[c] = float(vals.median()) if len(vals) else 0.0
+        xs = np.linspace(float(pd.to_numeric(DF[xc], errors="coerce").quantile(.05)), float(pd.to_numeric(DF[xc], errors="coerce").quantile(.95)), 22)
+        ys = np.linspace(float(pd.to_numeric(DF[yc], errors="coerce").quantile(.05)), float(pd.to_numeric(DF[yc], errors="coerce").quantile(.95)), 22)
+        grid = []
+        for yy in ys:
+            for xx in xs:
+                row = base.copy(); row[xc] = xx; row[yc] = yy; grid.append(row)
+        Xg = pd.DataFrame(grid, columns=ACTIVE_FEATURE_COLS)
+        if TR_FLAG in Xg.columns: Xg = apply_tr_logic(Xg)
+        if "concrete_strength_mpa" in Xg.columns: Xg["concrete_strength_mpa"] = np.power(Xg["concrete_strength_mpa"].clip(lower=0), r["fc_power"])
+        z = np.asarray(r["estimator"].predict(Xg.values), dtype=float).reshape(len(ys), len(xs))
+        return json.dumps({"x": xs.tolist(), "y": ys.tolist(), "z": z.tolist(), "xlabel": xc, "ylabel": yc, "title": "%s — 3D parameter surface" % name})
     raise ValueError(kind)
 
 
@@ -700,16 +749,23 @@ def predict_one(arg):
     m = json.loads(arg)
     name = m["model"]
     if name not in RESULTS:
-        raise RuntimeError("Once model egitin (3. bolum).")
+        raise RuntimeError("Train a model first.")
     r = RESULTS[name]
     row = {}
-    for c in FEATURE_COLS:
+    for c in ACTIVE_FEATURE_COLS + ["embedment_length_mm", "concrete_cover_mm"]:
         v = m["row"].get(c)
         row[c] = np.nan if v is None else float(v)
-    X = pd.DataFrame([row], columns=FEATURE_COLS)
-    X = apply_tr_logic(X)
-    X["concrete_strength_mpa"] = np.power(
-        X["concrete_strength_mpa"].clip(lower=0), r["fc_power"])
+    if "embedment_length_mm" in m["row"] and "embedment_length_db" in ACTIVE_FEATURE_COLS:
+        db = row.get("bar_diameter_mm", np.nan)
+        row["embedment_length_db"] = np.nan if not np.isfinite(db) else (np.nan if row.get("embedment_length_mm") is None else row["embedment_length_mm"] / db)
+    if "concrete_cover_mm" in m["row"] and "concrete_cover_db" in ACTIVE_FEATURE_COLS:
+        db = row.get("bar_diameter_mm", np.nan)
+        row["concrete_cover_db"] = np.nan if not np.isfinite(db) else (np.nan if row.get("concrete_cover_mm") is None else row["concrete_cover_mm"] / db)
+    X = pd.DataFrame([row], columns=ACTIVE_FEATURE_COLS)
+    if TR_FLAG in X.columns:
+        X = apply_tr_logic(X)
+    if "concrete_strength_mpa" in X.columns:
+        X["concrete_strength_mpa"] = np.power(X["concrete_strength_mpa"].clip(lower=0), r["fc_power"])
     pred = float(r["estimator"].predict(X.values)[0])
     return json.dumps({"pred": pred, "model": name, "scenario": r["scenario"],
                        "test_r2": r["test_r2"]})
@@ -775,6 +831,7 @@ const FEATURE_COLS = [
   "embedment_length_db","concrete_cover_db","transverse_reinforcement",
   "transverse_reinforcement_mm","transverse_reinforcement_bar_diameter_mm"];
 const TARGET_COL = "maximum_bond_stress_mpa";
+let ACTIVE_TARGET_COL = TARGET_COL;
 
 /* ── worker kurulumu ── */
 const workerSrc = document.getElementById("worker-src").textContent;
@@ -824,7 +881,7 @@ function logLine(text, cls){
   c.appendChild(div);
   c.scrollTop = c.scrollHeight;
 }
-function logErr(err){ logLine("HATA: " + (err && err.message ? err.message : String(err)), "err"); }
+function logErr(err){ logLine("Error: " + (err && err.message ? err.message : String(err)), "err"); }
 function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function parseNum(v){
   v = (v || "").trim().replace(",", ".");
@@ -838,12 +895,15 @@ function parseNum(v){
 let FLAGS = null;
 function onReady(flags){
   FLAGS = flags;
-  setStatus("hazır — veri yükleyin", "ready");
+  applyEnglishUi();
+  setupModernControls();
+  setStatus("Ready — upload a workbook", "ready");
   $("boot").style.display = "none";
   ["card-results","card-plot","card-log"].forEach(id => $(id).style.display = "block");
   document.querySelectorAll(".act").forEach(b => b.disabled = false);
   $("file-input").disabled = false;
   const sc = $("sel-scenario");
+  if (sc) sc.closest(".row2").style.display = "none";
   flags.scenarios.forEach(s => { const o = document.createElement("option"); o.textContent = s; sc.appendChild(o); });
   if (!flags.has_xgb){
     $("ck-xgb").checked = false; $("ck-xgb").disabled = true;
@@ -855,9 +915,57 @@ function onReady(flags){
   logLine("✓ Python ortamı hazır. 'Varsayılan veriyi yükle' ile başlayabilirsiniz.", "ok");
 }
 
+function setupModernControls(){
+  const g=$("ck-grubbs"), q=$("ck-iqr");
+  function sync(){
+    if (g.checked) q.checked=false;
+    if (q.checked) g.checked=false;
+    g.closest(".ckrow").classList.toggle("active",g.checked); q.closest(".ckrow").classList.toggle("active",q.checked);
+    $("in-alpha").style.display=g.checked?"":"none"; $("in-k").style.display=q.checked?"":"none";
+  }
+  g.addEventListener("change",sync); q.addEventListener("change",sync); sync();
+  const trainSec=$("ck-rf").closest(".sec"), grid=document.createElement("div"); grid.className="model-grid";
+  [$("ck-rf"),$("ck-xgb"),$("ck-svr")].forEach(c=>{const row=c.closest(".ckrow"); row.className="model-option"; grid.appendChild(row);});
+  trainSec.insertBefore(grid,$("in-iter").closest(".row4"));
+  const surface=document.createElement("option"); surface.value="surface3d"; surface.textContent="3D parameter surface"; $("sel-plot-kind").appendChild(surface);
+}
+
 /* ── 1: veri yükleme ── */
 let fileBuffer = null;   // en son seçilen dosyanın kopyası (sayfa değişiminde yeniden gönderilir)
 let dataLoaded = false;
+
+function renderPredictionFields(cols){
+  const section = $("btn-predict").closest(".sec");
+  section.querySelectorAll(".pin").forEach(el => el.closest("div").remove());
+  let grid = section.querySelector(".prediction-fields");
+  if (!grid){ grid = document.createElement("div"); grid.className = "row2 prediction-fields"; section.insertBefore(grid, section.querySelector(".row2")); }
+  grid.innerHTML = "";
+  const labels = {bar_diameter_mm:"Bar diameter (mm)", nominal_yield_strength_mpa:"Nominal yield strength (MPa)", concrete_strength_mpa:"Concrete strength fc (MPa)", embedment_length_db:"Embedment length (mm)", concrete_cover_db:"Concrete cover (mm)", transverse_reinforcement:"Transverse reinforcement (1/0)", transverse_reinforcement_mm:"Stirrup spacing (mm)", transverse_reinforcement_bar_diameter_mm:"Stirrup diameter (mm)"};
+  cols.forEach(c => { const wrap=document.createElement("div"), lab=document.createElement("label"), inp=document.createElement("input"); lab.textContent=labels[c] || c; inp.type="text"; inp.className="pin"; inp.dataset.col=(c === "embedment_length_db" ? "embedment_length_mm" : (c === "concrete_cover_db" ? "concrete_cover_mm" : c)); wrap.append(lab,inp); grid.appendChild(wrap); });
+}
+
+function applyEnglishUi(){
+  document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 · Data","2 · Outlier filter","3 · Model training","4 · Prediction"][i]||el.textContent);
+  $("btn-load").textContent="Load data"; $("btn-filter").textContent="Apply filter"; $("btn-reset").textContent="Reset data"; $("btn-train").textContent="Train models"; $("btn-predict").textContent="Predict";
+  $("card-results").querySelector("h2").textContent="Model results"; $("card-plot").querySelector("h2").textContent="Charts"; $("card-log").querySelector("h2").textContent="Terminal";
+  $("card-results").querySelectorAll("th").forEach((el,i)=>el.textContent=["Model","Best CV R²","Test R²","Test RMSE (MPa)","Training n","Test n"][i]||el.textContent);
+  $("pred-out").textContent="No prediction yet.";
+  $("btn-plot").textContent="Draw chart";
+  $("file-name").textContent="No file selected"; $("data-summary").textContent="No data loaded.";
+  $(".uz-text").textContent="Choose or drop your Excel file (.xlsx)";
+  $("sheet-sel").previousElementSibling.textContent="Sheet";
+  $("ck-grubbs").nextElementSibling.textContent="Grubbs test · α =";
+  $("ck-iqr").nextElementSibling.textContent="IQR rule · k =";
+  $("ck-grubbs").closest(".sec").querySelector("label[style]").textContent="Filter columns";
+  $("ck-rf").closest(".sec").querySelectorAll(".row4 label").forEach((el,i)=>el.textContent=["Search trials","CV folds","Test ratio","Random seed"][i]);
+  $("ck-rf").closest(".sec").querySelector(".mini").textContent="Training runs locally in your browser. Progress is shown in Terminal.";
+  $("btn-predict").closest(".sec").querySelector(".mini").textContent="Blank inputs remain missing and are not median-imputed. Transverse geometry is ignored when reinforcement is 0 or blank.";
+  $("card-plot").querySelectorAll("label").forEach((el,i)=>el.textContent=["Chart","Model","X variable","Y variable","Color variable","X min","X max","Y min","Y max"][i]||el.textContent);
+  $("sel-free-c")?.closest(".fld")?.remove();
+  $("card-plot").querySelector(".mini").textContent="Zoom and pan are available directly in the chart.";
+  $("card-log").querySelector("h2").textContent="Terminal";
+  $("btn-default")?.remove(); $("sel-fcpow")?.closest(".row2")?.querySelector("div:last-child")?.remove();
+}
 
 async function sendFile(buf, name){
   fileBuffer = buf;
@@ -883,12 +991,14 @@ async function loadSheet(){
       "Hedef '" + TARGET_COL + "' " + (r.has_target ? "MEVCUT (dolu: " + r.target_n + ")" : "<span style='color:var(--warn)'>YOK!</span>");
     buildColList(r.numeric_cols, r.default_selected);
     fillFreeSelects(r.numeric_cols);
-    logLine("Yüklendi: " + r.n_rows + " satır, " + r.n_cols + " kolon ('" + sheet + "' sayfası).", "ok");
-    setStatus("veri hazır — filtre/eğitim yapılabilir", "ready");
+    renderPredictionFields(r.feature_cols || []);
+    ACTIVE_TARGET_COL = r.target_col || TARGET_COL;
+    logLine("Loaded " + r.n_rows + " rows and " + r.n_cols + " columns from '" + sheet + "'.", "ok");
+    setStatus("Data ready — filtering and training available", "ready");
   } catch(err){ logErr(err); setStatus("veri yüklenemedi", "err"); }
 }
 
-$("btn-default").addEventListener("click", async () => {
+if ($("btn-default")) $("btn-default").addEventListener("click", async () => {
   setStatus("filtered_data.xlsx indiriliyor...", "load");
   try{
     const resp = await fetch("filtered_data.xlsx");
@@ -977,35 +1087,34 @@ $("btn-train").addEventListener("click", async () => {
   if (!models.length){ logErr(new Error("En az bir model seçin.")); return; }
   const btn = $("btn-train");
   btn.disabled = true; btn.textContent = "EĞİTİLİYOR...";
-  setStatus("eğitim sürüyor — günlüğü izleyin", "load");
+  setStatus("Training in progress — see Terminal", "load");
   $("res-body").innerHTML = "";
   trainedModels.length = 0;
   $("sel-plot-model").innerHTML = ""; $("sel-pred-model").innerHTML = "";
   try{
     await call("train", {
       models,
-      scenario: $("sel-scenario").value,
-      fc_power: parseFloat($("sel-fcpow").value),
+      fc_power: 1.0,
       n_iter: Math.max(5, parseInt($("in-iter").value) || 15),
       cv: Math.max(2, parseInt($("in-cv").value) || 3),
       test_size: parseNum($("in-test").value) || 0.2,
       rs: parseInt($("in-seed").value) || 42});
-    setStatus("eğitim tamamlandı", "ready");
-  } catch(err){ logErr(err); setStatus("eğitim hatası", "err"); }
+    setStatus("Training complete", "ready");
+  } catch(err){ logErr(err); setStatus("Training error", "err"); }
   btn.disabled = false; btn.textContent = "EĞİT";
 });
 
 /* ── grafikler ── */
 function fillFreeSelects(cols){
   const fx = $("sel-free-x"), fy = $("sel-free-y"), fc = $("sel-free-c");
-  [fx, fy, fc].forEach(s => s.innerHTML = "");
-  const oNone = document.createElement("option"); oNone.textContent = "(yok)"; fc.appendChild(oNone);
-  cols.forEach(c => [fx, fy, fc].forEach(s => {
+  [fx, fy, fc].filter(Boolean).forEach(s => s.innerHTML = "");
+  const oNone = document.createElement("option"); oNone.textContent = "(none)"; if (fc) fc.appendChild(oNone);
+  cols.forEach(c => [fx, fy, fc].filter(Boolean).forEach(s => {
     const o = document.createElement("option"); o.textContent = c; s.appendChild(o);
   }));
   if (cols.includes("concrete_strength_mpa")) fx.value = "concrete_strength_mpa";
-  if (cols.includes(TARGET_COL)) fy.value = TARGET_COL;
-  fc.value = "(yok)";
+  if (cols.includes(ACTIVE_TARGET_COL)) fy.value = ACTIVE_TARGET_COL;
+  if (fc) fc.value = "(none)";
 }
 
 function axisOpts(lay){
@@ -1038,9 +1147,10 @@ $("btn-plot").addEventListener("click", async () => {
   try{
     const req = {kind};
     if (kind === "scatter"){
-      req.x = $("sel-free-x").value; req.y = $("sel-free-y").value; req.c = $("sel-free-c").value;
+      req.x = $("sel-free-x").value; req.y = $("sel-free-y").value;
     } else {
       req.model = $("sel-plot-model").value;
+      if (kind === "surface3d") { req.x=$("sel-free-x").value; req.y=$("sel-free-y").value; }
       if (!req.model) throw new Error("Önce 3. bölümde model eğitin.");
     }
     const d = await call("plot", req);
@@ -1074,6 +1184,9 @@ $("btn-plot").addEventListener("click", async () => {
         {x: [x0, x1], y: [0, 0], mode: "lines", name: "sıfır",
          line: {dash: "dash", color: "#f55f4e", width: 1.4}}];
       lay = baseLayout(d.title, "Tahmin (MPa)", "Artık = deneysel − tahmin (MPa)");
+    } else if (kind === "surface3d") {
+      traces = [{x:d.x,y:d.y,z:d.z,type:"surface",colorscale:"Viridis",colorbar:{title:"τmax (MPa)"}}];
+      lay = {title:{text:d.title,font:{size:13}},paper_bgcolor:"#1e2535",plot_bgcolor:"#141927",font:{color:"#e8edf5"},scene:{xaxis:{title:d.xlabel},yaxis:{title:d.ylabel},zaxis:{title:"τmax (MPa)"}},margin:{t:48,r:20,b:20,l:20}};
     } else { // scatter
       const t = {x: d.x, y: d.y, mode: "markers", type: "scatter", name: "veri",
                  marker: {size: 6, opacity: 0.65, color: "#34c77b"}};
@@ -1107,6 +1220,7 @@ $("btn-predict").addEventListener("click", async () => {
 });
 
 /* ── başlat ── */
+applyEnglishUi();
 worker.postMessage({cmd: "init"});
 </script>
 </body>
