@@ -12,8 +12,10 @@ veriniz hiçbir yere gönderilmez.
 2. **Aykırı değer filtresi** — Grubbs testi / IQR kuralı, kolon seçimli
 3. **Eğitim** — Random Forest / XGBoost / SVR + Bayesian hiperparametre araması
    (scikit-optimize), senaryo filtresi, fc üssü seçeneği
-4. **Grafikler** — parite, BO yakınsaması, permütasyon özellik önemi, artıklar,
-   serbest saçılım; log eksen, min/maks, zoom/pan (Plotly)
+4. **Grafikler** — parite, BO yakınsaması, 3B BO gezinme yolu, permütasyon özellik
+   önemi, SHAP özet/önem, artıklar, serbest saçılım, 3B parametre yüzeyi;
+   min/maks, zoom/pan (Plotly). Her grafiğin çizildiği eksen verileri **Excel/CSV**
+   olarak, görseli **PDF** olarak indirilebilir.
 5. **Tahmin** — eğitilen modelle tek numune tahmini; boş bırakılan özellik
    "ölçülmemiş" olarak işlenir (MissingAwareScaler), TR mantığı otomatik uygulanır
 

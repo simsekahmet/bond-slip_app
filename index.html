@@ -6,6 +6,7 @@
 <title>Bond Stress Prediction Tool</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow:wght@400;500;600;700&display=swap');
 :root{
@@ -308,6 +309,12 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
         <span class="mini" style="padding-bottom:5px">Zoom and pan are available directly in the chart.</span>
       </div>
       <div id="plot-div"></div>
+      <div id="plot-export" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <span class="mini" style="align-self:center;margin:0 4px 0 0">Export current chart:</span>
+        <button class="btn btn-gray btn-sm" id="btn-dl-xlsx" disabled>⬇ Excel (.xlsx)</button>
+        <button class="btn btn-gray btn-sm" id="btn-dl-csv" disabled>⬇ CSV</button>
+        <button class="btn btn-gray btn-sm" id="btn-dl-pdf" disabled>⬇ PDF</button>
+      </div>
     </div>
 
     <div class="card" id="card-log" style="display:none">
@@ -1597,9 +1604,114 @@ $("btn-plot").addEventListener("click", async () => {
     }
     if (kind !== "surface3d" && kind !== "bo3d") axisOpts(lay, traces, kind);
     Plotly.newPlot("plot-div", traces, lay, PLOT_CFG);
+    // Cizilen grafigin verisini disa aktarim icin sakla (secilen eksenlere gore).
+    registerExport(kind, d, req.model);
   } catch(err){ logErr(err); }
   btn.disabled = false; btn.textContent = "Draw chart";
 });
+
+/* ── grafik disa aktarim (Excel / CSV / PDF) ── */
+let lastPlot = null;
+
+function registerExport(kind, d, model){
+  const table = makeTable(kind, d);
+  const tag = (model ? model.replace(/[^A-Za-z0-9]+/g, "") + "_" : "") + kind;
+  lastPlot = {kind, title: (d && d.title) || kind,
+              fname: "bondstress_" + tag,
+              table};
+  const ok = !!(table && table.rows.length);
+  $("btn-dl-xlsx").disabled = !ok;
+  $("btn-dl-csv").disabled = !ok;
+  $("btn-dl-pdf").disabled = false;   // PDF her zaman (mevcut grafik goruntusu) mumkun
+}
+
+// Her grafik turunu, kullanicinin sectigi eksenlere gore tablolastir.
+function makeTable(kind, d){
+  if (!d) return null;
+  if (kind === "parity")
+    return {name:"parity", cols:["Observed_tau_max_MPa","Predicted_MPa"],
+            rows: d.x.map((v,i)=>[v, d.y[i]])};
+  if (kind === "residual")
+    return {name:"residuals", cols:["Predicted_MPa","Residual_MPa"],
+            rows: d.x.map((v,i)=>[v, d.y[i]])};
+  if (kind === "bo")
+    return {name:"search_convergence", cols:["Trial","CV_R2","Best_so_far"],
+            rows: d.iter.map((v,i)=>[v, d.r2[i], d.best[i]])};
+  if (kind === "bo3d")
+    return {name:"search_path_3d", cols:["Trial", d.xlabel, d.ylabel, "CV_R2"],
+            rows: d.iter.map((v,i)=>[v, d.x[i], d.y[i], d.z[i]])};
+  if (kind === "importance")
+    return {name:"perm_importance", cols:["Feature","Importance_mean_R2_drop","Importance_std"],
+            rows: d.features.map((f,i)=>[f, d.mean[i], d.std[i]])};
+  if (kind === "shap_bar")
+    return {name:"shap_importance", cols:["Feature","mean_abs_SHAP_MPa"],
+            rows: d.features.map((f,i)=>[f, d.mean[i]])};
+  if (kind === "shap_beeswarm"){
+    const cols = ["Sample","Feature","SHAP_value_MPa","Feature_value_norm_0to1"];
+    const rows = [];
+    d.rows.forEach(r => r.shap.forEach((sv,s)=> rows.push([s, r.name, sv, r.val[s]])));
+    return {name:"shap_summary", cols, rows};
+  }
+  if (kind === "scatter"){
+    const cols = [d.xlabel, d.ylabel]; if (d.c) cols.push(d.clabel || "color");
+    const rows = d.x.map((v,i)=> d.c ? [v, d.y[i], d.c[i]] : [v, d.y[i]]);
+    return {name:"data_scatter", cols, rows};
+  }
+  if (kind === "surface3d"){
+    const cols = [d.xlabel, d.ylabel, "predicted_tau_max_MPa"];
+    const rows = [];
+    d.y.forEach((yy,yi)=> d.x.forEach((xx,xi)=> rows.push([xx, yy, d.z[yi][xi]])));
+    return {name:"surface_3d", cols, rows};
+  }
+  return null;
+}
+
+function downloadExcel(){
+  const t = lastPlot && lastPlot.table;
+  if (!t){ logErr(new Error("Draw a chart first.")); return; }
+  const aoa = [["# " + (lastPlot.title || "")], t.cols, ...t.rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, (t.name || "chart").slice(0, 31));
+  XLSX.writeFile(wb, (lastPlot.fname || "chart") + ".xlsx");
+}
+
+function downloadCSV(){
+  const t = lastPlot && lastPlot.table;
+  if (!t){ logErr(new Error("Draw a chart first.")); return; }
+  const esc = v => { v = (v == null ? "" : String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+  const csv = ["# " + (lastPlot.title || ""), t.cols.join(","), ...t.rows.map(r => r.map(esc).join(","))].join("\r\n");
+  const blob = new Blob(["﻿" + csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (lastPlot.fname || "chart") + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function downloadPDF(){
+  const btn = $("btn-dl-pdf");
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = "…";
+  try{
+    if (!window.jspdf) throw new Error("PDF library is still loading; try again shortly.");
+    const png = await Plotly.toImage($("plot-div"), {format:"png", width:1100, height:680, scale:2});
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({orientation:"landscape", unit:"pt", format:"a4"});
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    pdf.setFontSize(12);
+    pdf.text(String(lastPlot && lastPlot.title || "Chart").slice(0, 120), 40, 38);
+    const imgW = pw - 80, imgH = imgW * 680 / 1100;
+    pdf.addImage(png, "PNG", 40, 56, imgW, Math.min(imgH, ph - 90));
+    pdf.setFontSize(8);
+    pdf.text("Bond Stress Prediction Tool — simsekahmet.github.io/bond-slip_app", 40, ph - 20);
+    pdf.save(((lastPlot && lastPlot.fname) || "chart") + ".pdf");
+  } catch(err){ logErr(err); }
+  btn.disabled = false; btn.textContent = orig;
+}
+
+$("btn-dl-xlsx").addEventListener("click", downloadExcel);
+$("btn-dl-csv").addEventListener("click", downloadCSV);
+$("btn-dl-pdf").addEventListener("click", downloadPDF);
 
 /* ── 4: tahmin ── */
 $("btn-predict").addEventListener("click", async () => {
