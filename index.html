@@ -170,6 +170,7 @@ select option{background:#fff;color:var(--txt)}
 .row2{gap:10px;margin-bottom:10px}.row4{gap:10px;margin-bottom:10px}
 .upload-zone{border:1.5px dashed #91b7d8;border-radius:14px;padding:20px 14px;background:linear-gradient(135deg,#f4fbff,#f2f7ff);margin-bottom:12px}
 .upload-zone:hover{border-color:var(--accent);background:#edf4ff}
+.upload-zone.dragover{border-color:var(--green);background:#e8faf6;transform:translateY(-1px);box-shadow:0 0 0 4px rgba(15,159,136,.12)}
 .upload-zone .uz-text{font-family:var(--sans);font-size:12px;color:#46658d}
 .upload-zone .uz-name{font-family:var(--sans);color:var(--green)}
 .btn{border-radius:10px;padding:9px 14px;font-family:var(--sans);font-size:12px;box-shadow:0 5px 12px rgba(49,78,139,.12)}
@@ -204,7 +205,7 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
       <label class="upload-zone" for="file-input">
         <div class="uz-text">Kendi Excel dosyanı seç / sürükle (.xlsx)</div>
         <div class="uz-name" id="file-name">—</div>
-        <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none" disabled>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display:none" disabled>
       </label>
       <div class="row2">
         <div><label>Sayfa</label><select id="sheet-sel"></select></div>
@@ -566,14 +567,18 @@ def model_space(name, random_state):
 # ── mesaj isleyicileri (hepsi JSON str alir, JSON str dondurur) ──────────
 
 def sheets_from_file(arg):
+    m = json.loads(arg)
+    if m.get("file_type") == "csv" or str(m.get("file_name", "")).lower().endswith(".csv"):
+        return json.dumps({"sheets": ["CSV"], "file_type": "csv"})
     xls = pd.ExcelFile("/data.xlsx")
-    return json.dumps({"sheets": list(xls.sheet_names)})
+    return json.dumps({"sheets": list(xls.sheet_names), "file_type": "excel"})
 
 
 def load_data(arg):
     global DF_RAW, DF
     m = json.loads(arg)
-    DF_RAW = pd.read_excel("/data.xlsx", sheet_name=m["sheet"])
+    is_csv = m.get("file_type") == "csv" or str(m.get("file_name", "")).lower().endswith(".csv")
+    DF_RAW = pd.read_csv("/data.xlsx", sep=None, engine="python") if is_csv else pd.read_excel("/data.xlsx", sheet_name=m["sheet"])
     # Accept mm-based embedment/cover columns and normalize them internally by db.
     if "bar_diameter_mm" in DF_RAW.columns:
         db = pd.to_numeric(DF_RAW["bar_diameter_mm"], errors="coerce")
@@ -993,7 +998,9 @@ function setupModernControls(){
 }
 
 /* ── 1: veri yükleme ── */
-let fileBuffer = null;   // en son seçilen dosyanın kopyası (sayfa değişiminde yeniden gönderilir)
+let fileBuffer = null;
+let fileName = "";
+let fileType = "excel";
 let dataLoaded = false;
 
 function renderPredictionFields(cols){
@@ -1019,7 +1026,7 @@ function applyEnglishUi(){
   $("pred-out").textContent="No prediction yet.";
   $("btn-plot").textContent="Draw chart";
   $("file-name").textContent="No file selected"; $("data-summary").textContent="No data loaded.";
-  $(".uz-text").textContent="Choose or drop your Excel file (.xlsx)";
+  $(".uz-text").textContent="Click to browse or drop a CSV / Excel file (.csv, .xlsx, .xls)";
   $("sheet-sel").previousElementSibling.textContent="Sheet";
   $("ck-grubbs").nextElementSibling.textContent="Grubbs test · α =";
   $("ck-iqr").nextElementSibling.textContent="IQR rule · k =";
@@ -1044,22 +1051,25 @@ function applyEnglishUi(){
 
 async function sendFile(buf, name){
   fileBuffer = buf;
+  fileName = name || "uploaded file";
+  fileType = /\.csv$/i.test(fileName) ? "csv" : "excel";
   $("file-name").textContent = name;
-  const r = await call("file", {buffer: buf.slice(0)}, [buf.slice(0)].map(b => b));
+  const r = await call("file", {buffer: buf.slice(0), file_name:fileName, file_type:fileType}, [buf.slice(0)].map(b => b));
   const sel = $("sheet-sel");
   sel.innerHTML = "";
   r.sheets.forEach(s => { const o = document.createElement("option"); o.textContent = s; sel.appendChild(o); });
+  sel.closest(".row2").style.display = fileType === "csv" ? "none" : "";
   if (r.sheets.includes("Classification")) sel.value = "Classification";
   await loadSheet();
 }
 
 async function loadSheet(){
-  const sheet = $("sheet-sel").value;
+  const sheet = fileType === "csv" ? "CSV" : $("sheet-sel").value;
   if (!sheet){ logErr(new Error("Önce bir dosya seçin.")); return; }
   setStatus("veri yükleniyor...", "load");
   try{
-    if (fileBuffer) await call("file", {buffer: fileBuffer.slice(0)});
-    const r = await call("load", {sheet});
+    if (fileBuffer) await call("file", {buffer: fileBuffer.slice(0), file_name:fileName, file_type:fileType});
+    const r = await call("load", {sheet, file_name:fileName, file_type:fileType});
     dataLoaded = true;
     $("data-summary").innerHTML =
       "<b>" + r.n_rows + "</b> satır, <b>" + r.n_cols + "</b> kolon yüklendi.<br>" +
@@ -1083,14 +1093,27 @@ if ($("btn-default")) $("btn-default").addEventListener("click", async () => {
   } catch(err){ logErr(err); setStatus("hata", "err"); }
 });
 
-$("file-input").addEventListener("change", async (e) => {
-  const f = e.target.files[0];
+async function processSelectedFile(f){
   if (!f) return;
   setStatus("dosya okunuyor...", "load");
   try{
     const buf = await f.arrayBuffer();
     await sendFile(buf, f.name);
   } catch(err){ logErr(err); setStatus("hata", "err"); }
+}
+
+$("file-input").addEventListener("change", async (e) => {
+  await processSelectedFile(e.target.files[0]);
+  e.target.value = "";
+});
+
+const uploadZone = document.querySelector(".upload-zone");
+uploadZone.addEventListener("dragover", (e) => { e.preventDefault(); uploadZone.classList.add("dragover"); });
+uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragover"));
+uploadZone.addEventListener("drop", async (e) => {
+  e.preventDefault(); uploadZone.classList.remove("dragover");
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) await processSelectedFile(f);
 });
 
 $("btn-load").addEventListener("click", loadSheet);
