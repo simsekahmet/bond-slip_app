@@ -839,11 +839,32 @@ async function init(){
   post({type:"ready", flags});
 }
 
+async function prepareOptionalModels(){
+  const micropip = pyodide.pyimport("micropip");
+  let hasXgb = false, hasSkopt = false;
+  try {
+    await pyodide.loadPackage("xgboost");
+    pyodide.runPython("from xgboost import XGBRegressor; HAS_XGB = True");
+    hasXgb = true;
+  } catch(e) {}
+  try {
+    await micropip.install("scikit-optimize");
+    pyodide.runPython("from skopt import BayesSearchCV; from skopt.space import Real, Integer; HAS_SKOPT = True");
+    hasSkopt = true;
+  } catch(e) {}
+  return {has_xgb:hasXgb, has_skopt:hasSkopt};
+}
+
 self.onmessage = async (e) => {
   const m = e.data;
   if (m.cmd === "init"){
     try { await init(); }
     catch(err){ post({type:"fatal", text:String(err)}); }
+    return;
+  }
+  if (m.cmd === "prepare"){
+    try { post({type:"result", id:m.id, cmd:m.cmd, payload:await prepareOptionalModels()}); }
+    catch(err){ post({type:"error", id:m.id, cmd:m.cmd, text:String(err)}); }
     return;
   }
   try {
@@ -943,7 +964,7 @@ function onReady(flags){
   if (sc) sc.closest(".row2").style.display = "none";
   // Training uses all active rows; there is no scenario selector.
   if (!flags.has_xgb){
-    $("ck-xgb").checked = false; $("ck-xgb").disabled = true;
+    $("ck-xgb").checked = false; $("ck-xgb").disabled = false;
     logLine("Optional XGBoost is disabled at startup; Random Forest and SVR are ready.", "ok");
   }
   $("lbl-iter").textContent = "Search trials";
@@ -1146,6 +1167,15 @@ $("btn-train").addEventListener("click", async () => {
   trainedModels.length = 0;
   $("sel-plot-model").innerHTML = ""; $("sel-pred-model").innerHTML = "";
   try{
+    if (models.includes("XGBoost")) {
+      setStatus("Preparing optional XGBoost package...", "load");
+      const optional = await call("prepare", {});
+      if (!optional.has_xgb) {
+        const idx = models.indexOf("XGBoost"); if (idx >= 0) models.splice(idx, 1);
+        logLine("XGBoost could not be loaded; continuing with the selected core models.", "err");
+      }
+      if (!models.length) throw new Error("No trainable model is available.");
+    }
     await call("train", {
       models,
       fc_power: 1.0,
