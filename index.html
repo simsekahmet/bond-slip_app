@@ -8,12 +8,11 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow:wght@400;500;600;700&display=swap');
 :root{
   --bg:#161b26;--panel:#1e2535;--panel2:#252d40;
   --border:#2e3a52;--accent:#4285f4;--green:#34c77b;
   --warn:#f55f4e;--amber:#f0b24e;--txt:#e8edf5;--txt2:#8a97b0;--txt3:#5a6680;
-  --mono:'JetBrains Mono',monospace;--sans:'Barlow',sans-serif;
+  --mono:'Times New Roman',Times,serif;--sans:'Times New Roman',Times,serif;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:13px}
@@ -332,7 +331,7 @@ html[data-theme="dark"] .filter-choice .ckrow.active{border-color:#5b8dff;backgr
         <input type="file" id="model-file" accept=".pkl" style="display:none">
       </div>
       <div id="pred-out">No prediction yet.</div>
-      <div class="mini">Blank inputs stay missing (not imputed). For bond data, enter embedment length &amp; cover in mm — normalized internally by bar diameter; transverse geometry is ignored when reinforcement is 0 or blank.</div>
+      <div class="mini">Blank inputs stay missing (not imputed). Transverse geometry is ignored when reinforcement is 0 or blank.</div>
     </div>
 
   </div>
@@ -384,6 +383,7 @@ html[data-theme="dark"] .filter-choice .ckrow.active{border-color:#5b8dff;backgr
         <span class="mini" style="align-self:center;margin:0 4px 0 0">Export current chart:</span>
         <button class="btn btn-gray btn-sm" id="btn-dl-xlsx" disabled>⬇ Excel (.xlsx)</button>
         <button class="btn btn-gray btn-sm" id="btn-dl-csv" disabled>⬇ CSV</button>
+        <button class="btn btn-gray btn-sm" id="btn-dl-png" disabled>⬇ PNG</button>
         <button class="btn btn-gray btn-sm" id="btn-dl-pdf" disabled>⬇ PDF</button>
       </div>
     </div>
@@ -874,6 +874,22 @@ def train(arg):
     return json.dumps({"trained": trained})
 
 
+def _model_metrics(name, r):
+    def _f(v):
+        try:
+            v = float(v)
+            return v if np.isfinite(v) else None
+        except Exception:
+            return None
+    ytr = r.get("y_train"); yte = r.get("y_test")
+    return {"model": name, "scenario": r.get("scenario"),
+            "cv_mean": _f(r.get("cv_mean")), "cv_std": _f(r.get("cv_std")),
+            "test_r2": _f(r.get("test_r2")), "test_rmse": _f(r.get("test_rmse")),
+            "test_mae": _f(r.get("test_mae")), "test_mape": _f(r.get("test_mape")),
+            "n_train": (int(len(ytr)) if ytr is not None and len(ytr) else None),
+            "n_test": (int(len(yte)) if yte is not None and len(yte) else None)}
+
+
 def plot_data(arg):
     m = json.loads(arg)
     kind = m["kind"]
@@ -902,6 +918,7 @@ def plot_data(arg):
             "x": [float(v) for v in r["y_test"]],
             "y": [float(v) for v in r["y_pred"]],
             "n": int(len(r["y_test"])),
+            "metrics": _model_metrics(name, r),
             "title": "%s — %s | Test R²=%.3f  RMSE=%.2f MPa" % (
                 name, r["scenario"], r["test_r2"], r["test_rmse"])})
     if kind == "bo":
@@ -910,6 +927,7 @@ def plot_data(arg):
             "iter": list(range(1, len(h) + 1)),
             "r2": h,
             "best": [float(v) for v in np.maximum.accumulate(h)],
+            "metrics": _model_metrics(name, r),
             "title": "%s — hiperparametre aramasi yakinsamasi" % name})
     if kind == "importance":
         imp = permutation_importance(r["estimator"], r["X_test"], r["y_test"],
@@ -919,12 +937,14 @@ def plot_data(arg):
             "features": [ACTIVE_FEATURE_COLS[i] for i in order],
             "mean": [float(imp.importances_mean[i]) for i in order],
             "std": [float(imp.importances_std[i]) for i in order],
+            "metrics": _model_metrics(name, r),
             "title": "%s — ozellik onemi (test setinde)" % name})
     if kind == "residual":
         res = r["y_test"] - r["y_pred"]
         return json.dumps({
             "x": [float(v) for v in r["y_pred"]],
             "y": [float(v) for v in res],
+            "metrics": _model_metrics(name, r),
             "title": "%s — artik dagilimi (ort=%.2f, std=%.2f MPa)" % (
                 name, float(res.mean()), float(res.std()))})
     if kind == "bo3d":
@@ -951,6 +971,7 @@ def plot_data(arg):
         return json.dumps({"x": xs, "y": ys, "z": z,
                            "iter": list(range(1, len(z) + 1)),
                            "xlabel": xlab, "ylabel": ylab,
+                           "metrics": _model_metrics(name, r),
                            "title": "%s — search path: %s × %s × CV R²" % (name, ax[0], ax[1])})
     if kind == "surface3d":
         xc, yc = m.get("x"), m.get("y")
@@ -970,7 +991,9 @@ def plot_data(arg):
         if TR_FLAG in Xg.columns: Xg = apply_tr_logic(Xg)
         if "concrete_strength_mpa" in Xg.columns: Xg["concrete_strength_mpa"] = np.power(Xg["concrete_strength_mpa"].clip(lower=0), r["fc_power"])
         z = np.asarray(r["estimator"].predict(Xg.values), dtype=float).reshape(len(ys), len(xs))
-        return json.dumps({"x": xs.tolist(), "y": ys.tolist(), "z": z.tolist(), "xlabel": xc, "ylabel": yc, "title": "%s — 3D parameter surface" % name})
+        return json.dumps({"x": xs.tolist(), "y": ys.tolist(), "z": z.tolist(), "xlabel": xc, "ylabel": yc,
+                           "metrics": _model_metrics(name, r),
+                           "title": "%s — 3D parameter surface" % name})
     raise ValueError(kind)
 
 
@@ -1027,6 +1050,7 @@ def _shap_payload(kind, model_name):
         o2 = order[::-1]                       # yatay barda en onemli en ustte
         return json.dumps({"features": [feats[i] for i in o2],
                            "mean": [float(mean_abs[i]) for i in o2],
+                           "metrics": _model_metrics(model_name, r),
                            "title": "SHAP importance — %s (Test R²=%.3f)" % (model_name, r2)})
     rows = []
     for i in order:
@@ -1040,6 +1064,7 @@ def _shap_payload(kind, model_name):
                      "val": [(float((v - lo) / span) if np.isfinite(v) else 0.5)
                              for v in col]})
     return json.dumps({"rows": rows, "n": int(Xs.shape[0]),
+                       "metrics": _model_metrics(model_name, r),
                        "title": "SHAP summary — %s (Test R²=%.3f, n=%d)" % (model_name, r2, Xs.shape[0])})
 
 
@@ -1689,13 +1714,23 @@ function axisOpts(lay, traces, kind){
   applyAxis(lay.yaxis, "y", $("in-ymin").value, $("in-ymax").value);
 }
 
+const CHART_FONT = "'Times New Roman', Times, serif";
+// Grafik renkleri siteyle ayni temayi takip eder (koyu modda koyu, aydinlik modda BEYAZ).
+function chartTheme(){
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  return dark
+    ? {paper:"#1a2133", plot:"#141a29", font:"#e8edf5", grid:"#2e3a52", zero:"#3a4a68"}
+    : {paper:"#ffffff", plot:"#ffffff", font:"#17243b", grid:"#e3e8f0", zero:"#c7d0dd"};
+}
+
 function baseLayout(title, xl, yl){
+  const c = chartTheme();
   return {
-    title: {text: title, font: {size: 13, family: "Barlow, sans-serif"}},
-    paper_bgcolor: "#1e2535", plot_bgcolor: "#141927",
-    font: {color: "#e8edf5", family: "Barlow, sans-serif", size: 12},
-    xaxis: {title: {text: xl}, gridcolor: "#2e3a52", zerolinecolor: "#3a4a68", automargin: true},
-    yaxis: {title: {text: yl}, gridcolor: "#2e3a52", zerolinecolor: "#3a4a68", automargin: true},
+    title: {text: title, font: {size: 13, family: CHART_FONT}},
+    paper_bgcolor: c.paper, plot_bgcolor: c.plot,
+    font: {color: c.font, family: CHART_FONT, size: 12},
+    xaxis: {title: {text: xl}, gridcolor: c.grid, zerolinecolor: c.zero, automargin: true},
+    yaxis: {title: {text: yl}, gridcolor: c.grid, zerolinecolor: c.zero, automargin: true},
     margin: {t: 48, r: 26, b: 54, l: 66},
     legend: {bgcolor: "rgba(0,0,0,0)"},
   };
@@ -1748,17 +1783,28 @@ $("btn-plot").addEventListener("click", async () => {
       lay = baseLayout(d.title, "Predicted (MPa)", "Residual = observed - predicted (MPa)");
     } else if (kind === "surface3d") {
       traces = [{x:d.x,y:d.y,z:d.z,type:"surface",colorscale:"Viridis",colorbar:{title:"τmax (MPa)"}}];
-      lay = {title:{text:d.title,font:{size:13}},paper_bgcolor:"#1e2535",plot_bgcolor:"#141927",font:{color:"#e8edf5"},scene:{xaxis:{title:d.xlabel},yaxis:{title:d.ylabel},zaxis:{title:"τmax (MPa)"}},margin:{t:48,r:20,b:20,l:20}};
+      { const c = chartTheme();
+        lay = {title:{text:d.title,font:{size:13,family:CHART_FONT}},paper_bgcolor:c.paper,
+               font:{color:c.font,family:CHART_FONT},
+               scene:{bgcolor:c.plot,
+                      xaxis:{title:d.xlabel,gridcolor:c.grid,backgroundcolor:c.plot},
+                      yaxis:{title:d.ylabel,gridcolor:c.grid,backgroundcolor:c.plot},
+                      zaxis:{title:"τmax (MPa)",gridcolor:c.grid,backgroundcolor:c.plot}},
+               margin:{t:48,r:20,b:20,l:20}}; }
     } else if (kind === "bo3d") {
       // Denemeler sirayla cizgiyle bagli; renk = deneme sirasi (07 defteri hucre 3 gibi)
       traces = [{x:d.x, y:d.y, z:d.z, type:"scatter3d", mode:"lines+markers",
                  marker:{size:4.5, color:d.iter, colorscale:"Viridis",
                          colorbar:{title:{text:"trial"}}},
                  line:{color:"#8a97b0", width:2}}];
-      lay = {title:{text:d.title,font:{size:13}}, paper_bgcolor:"#1e2535",
-             font:{color:"#e8edf5"},
-             scene:{xaxis:{title:d.xlabel}, yaxis:{title:d.ylabel}, zaxis:{title:"CV R²"}},
-             margin:{t:48,r:20,b:20,l:20}, showlegend:false};
+      { const c = chartTheme();
+        lay = {title:{text:d.title,font:{size:13,family:CHART_FONT}}, paper_bgcolor:c.paper,
+               font:{color:c.font,family:CHART_FONT},
+               scene:{bgcolor:c.plot,
+                      xaxis:{title:d.xlabel,gridcolor:c.grid,backgroundcolor:c.plot},
+                      yaxis:{title:d.ylabel,gridcolor:c.grid,backgroundcolor:c.plot},
+                      zaxis:{title:"CV R²",gridcolor:c.grid,backgroundcolor:c.plot}},
+               margin:{t:48,r:20,b:20,l:20}, showlegend:false}; }
     } else if (kind === "shap_beeswarm") {
       traces = d.rows.map((row, i) => ({
         x: row.shap,
@@ -1810,11 +1856,30 @@ function registerExport(kind, d, model){
   const tag = (model ? model.replace(/[^A-Za-z0-9]+/g, "") + "_" : "") + kind;
   lastPlot = {kind, title: (d && d.title) || kind,
               fname: "bondstress_" + tag,
-              table};
+              table, metrics: (d && d.metrics) || null};
   const ok = !!(table && table.rows.length);
   $("btn-dl-xlsx").disabled = !ok;
   $("btn-dl-csv").disabled = !ok;
-  $("btn-dl-pdf").disabled = false;   // PDF her zaman (mevcut grafik goruntusu) mumkun
+  $("btn-dl-pdf").disabled = false;   // PDF/PNG her zaman (mevcut grafik goruntusu) mumkun
+  $("btn-dl-png").disabled = false;
+}
+
+// Secili grafige bagli model varsa degerlendirme metriklerini satirlara cevirir (Excel/CSV icin).
+function metricsBlock(m){
+  if (!m) return [];
+  const fmt = (v, d) => (typeof v === "number" && isFinite(v)) ? v.toFixed(d) : "";
+  return [
+    ["Model", m.model || ""],
+    ["Scenario", m.scenario || ""],
+    ["CV R2 (mean)", fmt(m.cv_mean, 4)],
+    ["CV R2 (std)", fmt(m.cv_std, 4)],
+    ["Test R2", fmt(m.test_r2, 4)],
+    ["Test RMSE (MPa)", fmt(m.test_rmse, 3)],
+    ["Test MAE (MPa)", fmt(m.test_mae, 3)],
+    ["Test MAPE (%)", fmt(m.test_mape, 2)],
+    ["n_train", m.n_train != null ? String(m.n_train) : ""],
+    ["n_test", m.n_test != null ? String(m.n_test) : ""],
+  ].filter(row => row[1] !== "");
 }
 
 // Her grafik turunu, kullanicinin sectigi eksenlere gore tablolastir.
@@ -1861,7 +1926,10 @@ function makeTable(kind, d){
 function downloadExcel(){
   const t = lastPlot && lastPlot.table;
   if (!t){ logErr(new Error("Draw a chart first.")); return; }
-  const aoa = [["# " + (lastPlot.title || "")], t.cols, ...t.rows];
+  const mrows = metricsBlock(lastPlot.metrics);
+  const aoa = [["# " + (lastPlot.title || "")]];
+  if (mrows.length){ aoa.push(["Evaluation metrics"]); mrows.forEach(r => aoa.push(r)); aoa.push([]); }
+  aoa.push(t.cols, ...t.rows);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, (t.name || "chart").slice(0, 31));
@@ -1872,7 +1940,16 @@ function downloadCSV(){
   const t = lastPlot && lastPlot.table;
   if (!t){ logErr(new Error("Draw a chart first.")); return; }
   const esc = v => { v = (v == null ? "" : String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
-  const csv = ["# " + (lastPlot.title || ""), t.cols.join(","), ...t.rows.map(r => r.map(esc).join(","))].join("\r\n");
+  const lines = ["# " + (lastPlot.title || "")];
+  const mrows = metricsBlock(lastPlot.metrics);
+  if (mrows.length){
+    lines.push("Evaluation metrics");
+    mrows.forEach(r => lines.push(r.map(esc).join(",")));
+    lines.push("");
+  }
+  lines.push(t.cols.join(","));
+  t.rows.forEach(r => lines.push(r.map(esc).join(",")));
+  const csv = lines.join("\r\n");
   const blob = new Blob(["﻿" + csv], {type:"text/csv;charset=utf-8"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -1881,28 +1958,71 @@ function downloadCSV(){
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+// PDF/PNG indirmede grafik HER ZAMAN beyaz zeminde cizilir (siteki tema ne olursa olsun);
+// canli grafige dokunulmadan, gorunmez bir kopya uzerinde render edilir.
+async function exportChartImageWhite(){
+  const gd = $("plot-div");
+  if (!gd || !gd.data || !gd.data.length) throw new Error("Draw a chart first.");
+  const layout = JSON.parse(JSON.stringify(gd.layout || {}));
+  layout.paper_bgcolor = "#ffffff";
+  layout.font = Object.assign({}, layout.font, {color: "#17243b", family: CHART_FONT});
+  if (layout.title && layout.title.font) layout.title.font.family = CHART_FONT;
+  if (layout.scene){
+    layout.scene = Object.assign({}, layout.scene, {bgcolor: "#ffffff"});
+    ["xaxis","yaxis","zaxis"].forEach(ax => {
+      if (layout.scene[ax]) layout.scene[ax] = Object.assign({}, layout.scene[ax],
+        {backgroundcolor: "#ffffff", gridcolor: "#e3e8f0"});
+    });
+  } else {
+    layout.plot_bgcolor = "#ffffff";
+    if (layout.xaxis) layout.xaxis = Object.assign({}, layout.xaxis, {gridcolor: "#e3e8f0", zerolinecolor: "#c7d0dd"});
+    if (layout.yaxis) layout.yaxis = Object.assign({}, layout.yaxis, {gridcolor: "#e3e8f0", zerolinecolor: "#c7d0dd"});
+  }
+  const hidden = document.createElement("div");
+  hidden.style.cssText = "position:fixed;left:-9999px;top:0;width:1100px;height:680px;background:#fff";
+  document.body.appendChild(hidden);
+  try{
+    await Plotly.newPlot(hidden, gd.data, layout, {staticPlot: true});
+    return await Plotly.toImage(hidden, {format: "png", width: 1100, height: 680, scale: 2});
+  } finally {
+    Plotly.purge(hidden);
+    hidden.remove();
+  }
+}
+
 async function downloadPDF(){
   const btn = $("btn-dl-pdf");
   btn.disabled = true; const orig = btn.textContent; btn.textContent = "…";
   try{
     if (!window.jspdf) throw new Error("PDF library is still loading; try again shortly.");
-    const png = await Plotly.toImage($("plot-div"), {format:"png", width:1100, height:680, scale:2});
+    const png = await exportChartImageWhite();
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({orientation:"landscape", unit:"pt", format:"a4"});
+    const pdf = new jsPDF({orientation: "landscape", unit: "pt", format: "a4"});
     const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
-    pdf.setFontSize(12);
-    pdf.text(String(lastPlot && lastPlot.title || "Chart").slice(0, 120), 40, 38);
-    const imgW = pw - 80, imgH = imgW * 680 / 1100;
-    pdf.addImage(png, "PNG", 40, 56, imgW, Math.min(imgH, ph - 90));
-    pdf.setFontSize(8);
-    pdf.text("Bond Stress Prediction Tool — simsekahmet.github.io/bond-slip_app", 40, ph - 20);
+    const imgW = pw, imgH = imgW * 680 / 1100;
+    const y = Math.max(0, (ph - imgH) / 2);
+    pdf.addImage(png, "PNG", 0, y, imgW, Math.min(imgH, ph));
     pdf.save(((lastPlot && lastPlot.fname) || "chart") + ".pdf");
+  } catch(err){ logErr(err); }
+  btn.disabled = false; btn.textContent = orig;
+}
+
+async function downloadPNG(){
+  const btn = $("btn-dl-png");
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = "…";
+  try{
+    const png = await exportChartImageWhite();
+    const a = document.createElement("a");
+    a.href = png;
+    a.download = ((lastPlot && lastPlot.fname) || "chart") + ".png";
+    document.body.appendChild(a); a.click(); a.remove();
   } catch(err){ logErr(err); }
   btn.disabled = false; btn.textContent = orig;
 }
 
 $("btn-dl-xlsx").addEventListener("click", downloadExcel);
 $("btn-dl-csv").addEventListener("click", downloadCSV);
+$("btn-dl-png").addEventListener("click", downloadPNG);
 $("btn-dl-pdf").addEventListener("click", downloadPDF);
 
 /* model kaydet / yukle */

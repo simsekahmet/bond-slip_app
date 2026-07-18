@@ -17,8 +17,11 @@ veriniz hiçbir yere gönderilmez.
    (scikit-optimize), senaryo filtresi (deformed/plain vb.), fc üssü seçeneği
 4. **Grafikler** — parite, BO yakınsaması, 3B BO gezinme yolu, permütasyon özellik
    önemi, SHAP özet/önem, artıklar, serbest saçılım, 3B parametre yüzeyi;
-   min/maks, zoom/pan (Plotly). Her grafiğin çizildiği eksen verileri **Excel/CSV**
-   olarak, görseli **PDF** olarak indirilebilir.
+   min/maks, zoom/pan (Plotly), site temasını takip eder (koyu modda koyu,
+   aydınlık modda beyaz zemin). Her grafiğin çizildiği eksen verileri
+   **Excel/CSV** olarak (değerlendirme metrikleriyle birlikte), görseli
+   **PNG/PDF** olarak indirilebilir — dışa aktarılan görsel, site teması ne
+   olursa olsun her zaman beyaz zeminde ve yalnızca grafiğin kendisiyle üretilir.
 5. **Sonuç metrikleri** — CV R² (ortalama ± std), Test R², RMSE, MAE, MAPE
 6. **Model kaydet/yükle** — eğitilen model `.pkl` olarak indirilir, sonra başka bir
    oturumda geri yüklenip yeniden eğitmeden tahmin için kullanılabilir
