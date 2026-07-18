@@ -291,6 +291,7 @@ html[data-theme="dark"] .filter-choice .ckrow.active{border-color:#5b8dff;backgr
         <button class="btn btn-blue btn-sm act" id="btn-filter" disabled>Apply filter</button>
         <button class="btn btn-gray btn-sm act" id="btn-reset" disabled>Reset data</button>
       </div>
+      <div class="mini" id="filter-summary"></div>
     </div>
 
     <div class="sec">
@@ -1429,9 +1430,14 @@ let fileSheets = {};
 let dataLoaded = false;
 let baseSummaryHTML = "";
 
-// Veri ozetini yeniden cizer: her filtre denemesi ONCEKI satiri EZER, alt alta birikmez.
-function renderSummary(filterLineHTML){
-  $("data-summary").innerHTML = baseSummaryHTML + (filterLineHTML ? "<br>" + filterLineHTML : "");
+function renderSummary(){
+  $("data-summary").innerHTML = baseSummaryHTML;
+}
+
+// Filtre sonucu artik 2 numarali blokta (Apply filter'in altinda) gosterilir;
+// her deneme ONCEKI satiri EZER, alt alta birikmez.
+function renderFilterSummary(html){
+  $("filter-summary").innerHTML = html || "";
 }
 
 function renderPredictionFields(cols){
@@ -1482,7 +1488,8 @@ async function loadSheet(){
     baseSummaryHTML =
       "<b>" + r.n_rows + "</b> rows, <b>" + r.n_cols + "</b> columns loaded.<br>" +
       "Target '" + r.target_col + "' " + (r.has_target ? "available (valid: " + r.target_n + ")" : "<span style='color:var(--warn)'>missing</span>");
-    renderSummary(null);
+    renderSummary();
+    renderFilterSummary("");
     buildColList(r.numeric_cols, r.default_selected);
     fillFreeSelects(r.numeric_cols);
     populateSchema(r);
@@ -1594,7 +1601,7 @@ $("btn-filter").addEventListener("click", async () => {
       grubbs: $("ck-grubbs").checked, alpha: parseNum($("in-alpha").value),
       iqr: $("ck-iqr").checked, k: parseNum($("in-k").value)});
     r.report.split("\n").forEach(l => logLine(l));
-    renderSummary("After filtering: <b>" + r.n + "</b> active rows.");
+    renderFilterSummary("After filtering: <b>" + r.n + "</b> active rows.");
   } catch(err){ logErr(err); }
 });
 
@@ -1603,7 +1610,7 @@ $("btn-reset").addEventListener("click", async () => {
   try{
     const r = await call("reset", {});
     logLine(r.report, "ok");
-    renderSummary("Filter reset: <b>" + r.n + "</b> active rows.");
+    renderFilterSummary("Filter reset: <b>" + r.n + "</b> active rows.");
   } catch(err){ logErr(err); }
 });
 
