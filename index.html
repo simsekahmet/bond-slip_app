@@ -2054,7 +2054,22 @@ $("model-file").addEventListener("change", async (e) => {
   try{
     await ensureEngine();
     const buf = await f.arrayBuffer();
-    const r = await call("import", {b64: arrayBufferToBase64(buf)});
+    const b64 = arrayBufferToBase64(buf);
+    let r;
+    try{
+      r = await call("import", {b64});
+    } catch(err){
+      // Kaydedilen model XGBoost tabanliysa ve bu oturumda XGBoost paketi hic
+      // egitim icin yuklenmediyse, unpickle "No module named 'xgboost'" ile
+      // patlar. Paketi simdi yukleyip tek seferlik yeniden dene.
+      if (/xgboost/i.test(err && err.message || "")){
+        logLine("Saved model needs the optional XGBoost package; loading it now...", "ok");
+        await call("prepare", {});
+        r = await call("import", {b64});
+      } else {
+        throw err;
+      }
+    }
     registerModel(r.model);
     renderPredictionFields(r.feature_cols || []);
     window.__featureCols = r.feature_cols || [];
