@@ -500,8 +500,6 @@ def resolve_schema(df):
     if target is None:
         raise RuntimeError("The workbook must contain at least one numeric input column and one numeric target column.")
     features = [c for c in FEATURE_COLS if c in df.columns]
-    if features and "bar_type_deformed" in df.columns:
-        features.append("bar_type_deformed")
     if not features:
         features = [c for c in numeric if c != target]
     ACTIVE_FEATURE_COLS = features
@@ -703,11 +701,6 @@ def load_data(arg):
         for mm, dbcol in [("embedment_length_mm", "embedment_length_db"), ("concrete_cover_mm", "concrete_cover_db")]:
             if mm in DF_RAW.columns and dbcol not in DF_RAW.columns:
                 DF_RAW[dbcol] = pd.to_numeric(DF_RAW[mm], errors="coerce") / db.replace(0, np.nan)
-    # Encode bar_type as a numeric feature (deformed=1, plain=0) when present.
-    if "bar_type" in DF_RAW.columns and "bar_type_deformed" not in DF_RAW.columns:
-        bt = DF_RAW["bar_type"].astype(str).str.lower().str.strip()
-        DF_RAW["bar_type_deformed"] = np.where(bt.str.contains("deform"), 1.0,
-                                        np.where(bt.str.contains("plain"), 0.0, np.nan))
     DF = DF_RAW.copy()
     features, target = resolve_schema(DF_RAW)
     numeric = [c for c in DF_RAW.columns
@@ -991,6 +984,15 @@ def plot_data(arg):
         if TR_FLAG in Xg.columns: Xg = apply_tr_logic(Xg)
         if "concrete_strength_mpa" in Xg.columns: Xg["concrete_strength_mpa"] = np.power(Xg["concrete_strength_mpa"].clip(lower=0), r["fc_power"])
         z = np.asarray(r["estimator"].predict(Xg.values), dtype=float).reshape(len(ys), len(xs))
+        # Agac tabanli modeller (RF/XGBoost) parcali-sabit tahmin urettigi icin
+        # "merdiven" gorunumlu yuzey cizer; SVR dogal olarak akiskan. Tum modellerde
+        # ayni akiskan gorunumu icin yuzeyi hafifce yumusatiyoruz (yalniz bu
+        # gorsellestirme icin - gercek tahmin/metrikler etkilenmez).
+        try:
+            from scipy.ndimage import gaussian_filter
+            z = gaussian_filter(z, sigma=1.1, mode="nearest")
+        except Exception:
+            pass
         return json.dumps({"x": xs.tolist(), "y": ys.tolist(), "z": z.tolist(), "xlabel": xc, "ylabel": yc,
                            "metrics": _model_metrics(name, r),
                            "title": "%s — 3D parameter surface" % name})
@@ -1438,17 +1440,11 @@ function renderPredictionFields(cols){
   let grid = section.querySelector(".prediction-fields");
   if (!grid){ grid = document.createElement("div"); grid.className = "row2 prediction-fields"; section.insertBefore(grid, section.querySelector(".row2")); }
   grid.innerHTML = "";
-  const labels = {bar_diameter_mm:"Bar diameter (mm)", nominal_yield_strength_mpa:"Nominal yield strength (MPa)", concrete_strength_mpa:"Concrete strength fc (MPa)", embedment_length_db:"Embedment length (mm)", concrete_cover_db:"Concrete cover (mm)", transverse_reinforcement:"Transverse reinforcement (1/0)", transverse_reinforcement_mm:"Stirrup spacing (mm)", transverse_reinforcement_bar_diameter_mm:"Stirrup diameter (mm)", bar_type_deformed:"Bar type"};
+  const labels = {bar_diameter_mm:"Bar diameter (mm)", nominal_yield_strength_mpa:"Nominal yield strength (MPa)", concrete_strength_mpa:"Concrete strength fc (MPa)", embedment_length_db:"Embedment length (mm)", concrete_cover_db:"Concrete cover (mm)", transverse_reinforcement:"Transverse reinforcement (1/0)", transverse_reinforcement_mm:"Stirrup spacing (mm)", transverse_reinforcement_bar_diameter_mm:"Stirrup diameter (mm)"};
   cols.forEach(c => {
     const wrap=document.createElement("div"), lab=document.createElement("label");
     lab.textContent=labels[c] || c;
-    let inp;
-    if (c === "bar_type_deformed"){
-      inp=document.createElement("select");
-      [["","—"],["1","Deformed"],["0","Plain"]].forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;inp.appendChild(o);});
-    } else {
-      inp=document.createElement("input"); inp.type="text";
-    }
+    const inp=document.createElement("input"); inp.type="text";
     inp.className="pin";
     inp.dataset.col=(c === "embedment_length_db" ? "embedment_length_mm" : (c === "concrete_cover_db" ? "concrete_cover_mm" : c));
     wrap.append(lab,inp); grid.appendChild(wrap);
