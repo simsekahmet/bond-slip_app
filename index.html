@@ -33,7 +33,16 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--sa
 }
 #status-chip.ready{color:var(--green)}
 #status-chip.err{color:var(--warn)}
-#topbar .author{margin-left:auto;font-size:11px;color:var(--txt2);font-family:var(--mono)}
+#topbar .author{font-size:11px;color:var(--txt2);font-family:var(--mono)}
+.tau-badge{display:inline-flex;align-items:baseline;font-family:var(--mono);font-weight:700;font-size:11px;color:#fff;background:linear-gradient(135deg,var(--accent),#8a5cf6);padding:1px 7px;border-radius:6px;margin-right:3px;letter-spacing:.01em}
+.theme-toggle{appearance:none;-webkit-appearance:none;position:relative;margin-left:auto;display:inline-flex;align-items:center;justify-content:space-between;width:50px;height:25px;padding:0 5px;border-radius:999px;border:1px solid var(--border);background:var(--panel2);cursor:pointer;flex-shrink:0;transition:background .2s,border-color .2s}
+.theme-toggle .tt-icon{font-size:11px;line-height:1;z-index:1;transition:opacity .2s}
+.theme-toggle .tt-sun{opacity:1}
+.theme-toggle .tt-moon{opacity:.35}
+.theme-toggle .tt-knob{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);transition:transform .25s ease,background .25s}
+html[data-theme="dark"] .theme-toggle .tt-knob{transform:translateX(25px);background:#1c2439}
+html[data-theme="dark"] .theme-toggle .tt-sun{opacity:.35}
+html[data-theme="dark"] .theme-toggle .tt-moon{opacity:1}
 
 /* ── layout ── */
 #layout{display:flex;height:calc(100vh - 42px);overflow:hidden}
@@ -187,15 +196,61 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
 .model-option{background:#f8fbff;border-color:#d8e3f1;border-radius:12px}.model-option label{font-family:var(--sans);color:#263c61}
 .filter-choice .ckrow{background:#f8fbff;border-color:#d8e3f1;border-radius:12px}.filter-choice .ckrow.active{border-color:#7d99e9;background:#eef3ff}
 @media(max-width:900px){#layout{height:auto;padding:12px;display:block}#sidebar{width:auto;min-width:0;padding:0}#results{height:auto;padding:0}.card{padding:16px}}
+
+/* ── dark mode (toggle-scoped; default is the light theme above, unchanged) ── */
+html[data-theme="dark"]{
+  --bg:#0f141f;--panel:#1a2133;--panel2:#232c42;--border:#2e3a52;
+  --accent:#5b8dff;--green:#34c77b;--warn:#f5675a;--amber:#f0b24e;
+  --txt:#e8edf5;--txt2:#93a1ba;--txt3:#5f6d88;--shadow:0 16px 40px rgba(0,0,0,.45);
+  background:radial-gradient(circle at 15% 0%,#161d2e 0,#10141f 42%,#0c0f18 100%);
+}
+html[data-theme="dark"] body{background:transparent}
+html[data-theme="dark"] #topbar{background:rgba(20,26,41,.9);border-bottom:1px solid rgba(46,58,82,.9);box-shadow:0 4px 24px rgba(0,0,0,.35)}
+html[data-theme="dark"] #topbar h1{color:#8fb2ff}
+html[data-theme="dark"] #status-chip{background:#1c2439;border-color:#324063;color:#f0b24e}
+html[data-theme="dark"] .sec{background:rgba(26,33,51,.92);border-color:rgba(46,58,82,.9)}
+html[data-theme="dark"] .sec-title{color:#8fb2ff}
+html[data-theme="dark"] .card{background:rgba(26,33,51,.94);border-color:rgba(46,58,82,.9)}
+html[data-theme="dark"] .card h2{color:#a9c2ff}
+html[data-theme="dark"] label{color:#93a1ba}
+html[data-theme="dark"] input[type=number],
+html[data-theme="dark"] input[type=text],
+html[data-theme="dark"] select{background:#141a29;border-color:#2e3a52}
+html[data-theme="dark"] input:focus,
+html[data-theme="dark"] select:focus{border-color:#5b8dff;box-shadow:0 0 0 3px rgba(91,141,255,.18)}
+html[data-theme="dark"] select option{background:#1c2439;color:var(--txt)}
+html[data-theme="dark"] .upload-zone{border-color:#3a6f4f;background:linear-gradient(135deg,#132018,#0f1a14)}
+html[data-theme="dark"] .upload-zone:hover{background:#12261c}
+html[data-theme="dark"] .upload-zone.dragover{background:#123626}
+html[data-theme="dark"] .upload-zone .uz-text{color:#93a1ba}
+html[data-theme="dark"] .btn-gray{background:#232c42;color:#c3cbdc;border-color:#2e3a52}
+html[data-theme="dark"] #col-list,html[data-theme="dark"] #feat-list{background:#141a29;border-color:#2e3a52}
+html[data-theme="dark"] .mini{color:#8a97b0}
+html[data-theme="dark"] th,html[data-theme="dark"] td{border-color:#2e3a52}
+html[data-theme="dark"] th{background:#232c42;color:#93a1ba}
+html[data-theme="dark"] td{color:var(--txt)}
+html[data-theme="dark"] #pred-out{background:#10241d;border-color:#1f5643;color:#4fe0bd}
+html[data-theme="dark"] .spinner{border-color:#2e3a52;border-top-color:#5b8dff}
+html[data-theme="dark"] #boot .msg{color:#93a1ba}
+html[data-theme="dark"] .model-option{background:#161d2e;border-color:#2e3a52}
+html[data-theme="dark"] .model-option label{color:var(--txt)}
+html[data-theme="dark"] .filter-choice .ckrow{background:#161d2e;border-color:#2e3a52}
+html[data-theme="dark"] .filter-choice .ckrow.active{border-color:#5b8dff;background:rgba(91,141,255,.14)}
 </style>
 </head>
 <body>
+<script>(function(){try{if(localStorage.getItem('bsp-theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 
 <div id="topbar">
   <h1>Bond Stress Prediction Tool</h1>
   <span class="ver">v2.0 · web</span>
   <span id="status-chip">Starting...</span>
-  <span class="author">τ<sub>max</sub> Prediction · Ahmet Şimşek</span>
+  <button id="theme-toggle" class="theme-toggle" type="button" title="Switch light / dark mode" aria-label="Switch light / dark mode">
+    <span class="tt-icon tt-sun">☀️</span>
+    <span class="tt-knob"></span>
+    <span class="tt-icon tt-moon">🌙</span>
+  </button>
+  <span class="author"><span class="tau-badge">τ<sub>max</sub></span> Prediction · Ahmet Şimşek</span>
 </div>
 
 <div id="layout">
@@ -1143,6 +1198,24 @@ self.onmessage = async (e) => {
 "use strict";
 const $ = (id) => document.getElementById(id);
 
+/* ── tema anahtari (gece/gunduz) ── */
+(function(){
+  const root = document.documentElement;
+  const btn = document.getElementById("theme-toggle");
+  function apply(theme){
+    if (theme === "dark") root.setAttribute("data-theme", "dark");
+    else root.removeAttribute("data-theme");
+  }
+  let saved = null;
+  try { saved = localStorage.getItem("bsp-theme"); } catch(e){}
+  if (saved === "dark") apply("dark");
+  btn.addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    apply(next);
+    try { localStorage.setItem("bsp-theme", next); } catch(e){}
+  });
+})();
+
 const FEATURE_COLS = [
   "bar_diameter_mm","nominal_yield_strength_mpa","concrete_strength_mpa",
   "embedment_length_db","concrete_cover_db","transverse_reinforcement",
@@ -1327,6 +1400,12 @@ let fileName = "";
 let fileType = "excel";
 let fileSheets = {};
 let dataLoaded = false;
+let baseSummaryHTML = "";
+
+// Veri ozetini yeniden cizer: her filtre denemesi ONCEKI satiri EZER, alt alta birikmez.
+function renderSummary(filterLineHTML){
+  $("data-summary").innerHTML = baseSummaryHTML + (filterLineHTML ? "<br>" + filterLineHTML : "");
+}
 
 function renderPredictionFields(cols){
   const section = $("btn-predict").closest(".sec");
@@ -1379,9 +1458,10 @@ async function loadSheet(){
     await ensureEngine();
     const r = await call("load", {sheet, file_name:fileName, file_type:fileType, records:fileSheets[sheet] || []});
     dataLoaded = true;
-    $("data-summary").innerHTML =
+    baseSummaryHTML =
       "<b>" + r.n_rows + "</b> rows, <b>" + r.n_cols + "</b> columns loaded.<br>" +
       "Target '" + r.target_col + "' " + (r.has_target ? "available (valid: " + r.target_n + ")" : "<span style='color:var(--warn)'>missing</span>");
+    renderSummary(null);
     buildColList(r.numeric_cols, r.default_selected);
     fillFreeSelects(r.numeric_cols);
     populateSchema(r);
@@ -1493,7 +1573,7 @@ $("btn-filter").addEventListener("click", async () => {
       grubbs: $("ck-grubbs").checked, alpha: parseNum($("in-alpha").value),
       iqr: $("ck-iqr").checked, k: parseNum($("in-k").value)});
     r.report.split("\n").forEach(l => logLine(l));
-    $("data-summary").innerHTML += "<br>After filtering: <b>" + r.n + "</b> active rows.";
+    renderSummary("After filtering: <b>" + r.n + "</b> active rows.");
   } catch(err){ logErr(err); }
 });
 
@@ -1502,6 +1582,7 @@ $("btn-reset").addEventListener("click", async () => {
   try{
     const r = await call("reset", {});
     logLine(r.report, "ok");
+    renderSummary("Filter reset: <b>" + r.n + "</b> active rows.");
   } catch(err){ logErr(err); }
 });
 
