@@ -88,12 +88,12 @@ input[type=checkbox]{accent-color:var(--accent)}
 .btn-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px}
 
 /* ── column list ── */
-#col-list{
+#col-list,#feat-list{
   max-height:170px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);
   border-radius:4px;padding:5px 7px;margin-bottom:7px;
 }
-#col-list .ckrow{margin-bottom:3px;font-size:11px;font-family:var(--mono)}
-#col-list .ckrow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#col-list .ckrow,#feat-list .ckrow{margin-bottom:3px;font-size:11px;font-family:var(--mono)}
+#col-list .ckrow span,#feat-list .ckrow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── summary / small text ── */
 .mini{font-size:11px;color:var(--txt2);font-family:var(--mono);line-height:1.5;margin-top:6px;word-break:break-word}
@@ -177,7 +177,7 @@ select option{background:#fff;color:var(--txt)}
 .upload-zone .uz-name{font-family:var(--sans);color:var(--green)}
 .btn{border-radius:10px;padding:9px 14px;font-family:var(--sans);font-size:12px;box-shadow:0 5px 12px rgba(49,78,139,.12)}
 .btn-blue{background:linear-gradient(135deg,#496ce2,#3559d6)}.btn-green{background:linear-gradient(135deg,#18b49b,#0f9f88);color:#fff}.btn-gray{background:#f4f7fb;color:#536581;border-color:#d8e1ec}
-#col-list{background:#f8fbff;border-color:#dce5f0;border-radius:10px}
+#col-list,#feat-list{background:#f8fbff;border-color:#dce5f0;border-radius:10px}
 .mini{font-family:var(--sans);color:#72829a}
 table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:9px 10px}th{background:#f4f7fb;color:#61728c}td{color:#23344f}
 #console{background:#19243a;border:0;border-radius:12px;color:#cfe0ff;height:150px;padding:12px}
@@ -210,16 +210,27 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
         <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display:none">
       </label>
       <div class="row2">
-        <div><label>Sayfa</label><select id="sheet-sel"></select></div>
+        <div><label>Sheet</label><select id="sheet-sel"></select></div>
         <div style="display:flex;align-items:flex-end"><button class="btn btn-blue btn-sm act" id="btn-load" disabled style="width:100%">Load data</button></div>
       </div>
       <div class="mini" id="data-summary">No data loaded.</div>
+      <div id="schema-box" style="display:none;margin-top:10px">
+        <label>Target column (value to predict)</label>
+        <select id="sel-target"></select>
+        <label style="margin-top:8px">Feature columns (model inputs)</label>
+        <div id="feat-list"><span class="mini">—</span></div>
+        <div class="btn-row">
+          <button class="btn btn-gray btn-sm" id="btn-feat-all" type="button">All</button>
+          <button class="btn btn-gray btn-sm" id="btn-feat-none" type="button">None</button>
+          <button class="btn btn-gray btn-sm" id="btn-feat-reset" type="button">Reset</button>
+        </div>
+      </div>
     </div>
 
     <div class="sec">
       <div class="sec-title">2 - Outlier filter</div>
-      <div class="ckrow"><input type="checkbox" id="ck-grubbs" checked><span class="lbl">Grubbs testi &nbsp;α =</span><input type="text" id="in-alpha" value="0.05"></div>
-      <div class="ckrow"><input type="checkbox" id="ck-iqr"><span class="lbl">IQR rule - k =</span><input type="text" id="in-k" value="1.5"></div>
+      <div class="ckrow"><input type="checkbox" id="ck-grubbs" checked><span class="lbl">Grubbs test · α =</span><input type="text" id="in-alpha" value="0.05"></div>
+      <div class="ckrow"><input type="checkbox" id="ck-iqr"><span class="lbl">IQR rule · k =</span><input type="text" id="in-k" value="1.5"></div>
       <label style="margin-top:5px">Filter columns</label>
       <div id="col-list"><span class="mini">Upload data first</span></div>
       <div class="btn-row">
@@ -260,8 +271,13 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
         <div><label>Model</label><select id="sel-pred-model"></select></div>
         <div style="display:flex;align-items:flex-end"><button class="btn btn-green act" id="btn-predict" disabled style="width:100%">Predict</button></div>
       </div>
-      <div id="pred-out">—</div>
-      <div class="mini">Enter embedment length and concrete cover in mm. They are normalized internally by bar diameter.</div>
+      <div class="btn-row" style="margin-top:2px">
+        <button class="btn btn-gray btn-sm" id="btn-save-model" type="button">Save model (.pkl)</button>
+        <label class="btn btn-gray btn-sm" for="model-file" style="cursor:pointer;margin:0">Load model (.pkl)</label>
+        <input type="file" id="model-file" accept=".pkl" style="display:none">
+      </div>
+      <div id="pred-out">No prediction yet.</div>
+      <div class="mini">Blank inputs stay missing (not imputed). For bond data, enter embedment length &amp; cover in mm — normalized internally by bar diameter; transverse geometry is ignored when reinforcement is 0 or blank.</div>
     </div>
 
   </div>
@@ -276,7 +292,7 @@ table{font-family:var(--sans);font-size:12px}th,td{border-color:#e0e7f0;padding:
     <div class="card" id="card-results" style="display:none">
       <h2>Model results</h2>
       <table>
-        <thead><tr><th>Model</th><th>Best CV R2</th><th>Test R2</th><th>Test RMSE (MPa)</th><th>Training n</th><th>Test n</th></tr></thead>
+        <thead><tr><th>Model</th><th>CV R² (mean±std)</th><th>Test R²</th><th>RMSE (MPa)</th><th>MAE (MPa)</th><th>MAPE (%)</th><th>n train</th><th>n test</th></tr></thead>
         <tbody id="res-body"></tbody>
       </table>
     </div>
@@ -338,13 +354,15 @@ const PY_CODE = String.raw`
 # Bond Stress Studio — web cekirdegi.
 # 08_bond_stress_app.py (masaustu) ile ayni veri/egitim mantigi; arayuz JS'te.
 import json
+import pickle
+import base64
 import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.inspection import permutation_importance
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
@@ -694,11 +712,20 @@ def reset_filter(arg):
 
 
 def train(arg):
+    global ACTIVE_FEATURE_COLS, ACTIVE_TARGET_COL
     cfg = json.loads(arg)
     if DF is None:
         raise RuntimeError("Upload data first.")
-    if ACTIVE_TARGET_COL not in DF.columns:
+    # Kullanicinin sectigi hedef + ozellikler (farkli sutun adli veri setlerine uyum).
+    tgt = cfg.get("target") or ACTIVE_TARGET_COL
+    feats = cfg.get("features") or ACTIVE_FEATURE_COLS
+    if tgt not in DF.columns:
         raise RuntimeError("The selected target column is not available in the active data.")
+    feats = [c for c in feats if c != tgt and c in DF.columns]
+    if not feats:
+        raise RuntimeError("Select at least one feature column.")
+    ACTIVE_TARGET_COL = tgt
+    ACTIVE_FEATURE_COLS = feats
     scenario = cfg.get("scenario", "tum_veri")
     d = apply_scenario(DF, scenario)
     if len(d) == 0:
@@ -742,6 +769,15 @@ def train(arg):
         yp = np.asarray(search.predict(Xte), dtype=float)
         r2 = float(r2_score(yte, yp))
         rmse = float(np.sqrt(mean_squared_error(yte, yp)))
+        mae = float(mean_absolute_error(yte, yp))
+        nz = yte != 0
+        mape = float(np.mean(np.abs((yte[nz] - yp[nz]) / yte[nz])) * 100.0) if nz.any() else float("nan")
+        # En iyi modelin egitim setinde tam CV skoru (ortalama ± std)
+        try:
+            cvs = cross_val_score(search.best_estimator_, Xtr, ytr, cv=cv, scoring="r2", n_jobs=1)
+            cv_mean, cv_std = float(np.mean(cvs)), float(np.std(cvs))
+        except Exception:
+            cv_mean, cv_std = float(search.best_score_), 0.0
         hist = [float(v) for v in search.cv_results_["mean_test_score"]]
         # Deneme bazinda parametre gecmisi (3B BO gezinme grafigi icin)
         bo_params = {}
@@ -763,18 +799,19 @@ def train(arg):
             best_params[kk] = round(vv, 5) if isinstance(vv, float) else vv
         RESULTS[name] = dict(estimator=search.best_estimator_, bo_history=hist,
                              bo_params=bo_params,
-                             cv_r2=float(search.best_score_), test_r2=r2,
-                             test_rmse=rmse, X_test=Xte, y_test=yte, y_pred=yp,
+                             cv_r2=float(search.best_score_), cv_mean=cv_mean, cv_std=cv_std,
+                             test_r2=r2, test_rmse=rmse, test_mae=mae, test_mape=mape,
+                             X_test=Xte, y_test=yte, y_pred=yp,
                              X_train=Xtr, y_train=ytr,
                              best_params=best_params,
                              fc_power=float(cfg.get("fc_power", 1.0)),
                              scenario=SCENARIO_LABEL.get(scenario, scenario),
                              feature_cols=ACTIVE_FEATURE_COLS[:], target_col=ACTIVE_TARGET_COL)
-        pylog("   best CV R²=%.3f | Test R²=%.3f  RMSE=%.2f MPa" % (
-            float(search.best_score_), r2, rmse))
+        pylog("   CV R²=%.3f±%.3f | Test R²=%.3f  RMSE=%.2f  MAE=%.2f  MAPE=%.1f%%" % (
+            cv_mean, cv_std, r2, rmse, mae, mape))
         pylog("   best parameters: %s" % best_params)
-        pyrow(json.dumps({"model": name, "cv_r2": float(search.best_score_),
-                          "test_r2": r2, "test_rmse": rmse,
+        pyrow(json.dumps({"model": name, "cv_mean": cv_mean, "cv_std": cv_std,
+                          "test_r2": r2, "test_rmse": rmse, "test_mae": mae, "test_mape": mape,
                           "n_train": int(len(ytr)), "n_test": int(len(yte))}))
         trained.append(name)
     pylog("")
@@ -975,6 +1012,56 @@ def predict_one(arg):
     pred = float(r["estimator"].predict(X.values)[0])
     return json.dumps({"pred": pred, "model": name, "scenario": r["scenario"],
                        "test_r2": r["test_r2"]})
+
+
+def export_model(arg):
+    """Egitilen modeli (pipeline + sema/meta) pickle'layip base64 doner; JS indirir."""
+    m = json.loads(arg)
+    name = m["model"]
+    if name not in RESULTS:
+        raise RuntimeError("Train a model first.")
+    r = RESULTS[name]
+    blob = {"format": "bondstress-model-v1", "model_name": name,
+            "estimator": r["estimator"], "feature_cols": r["feature_cols"],
+            "target_col": r.get("target_col", ACTIVE_TARGET_COL),
+            "fc_power": r.get("fc_power", 1.0), "scenario": r.get("scenario", ""),
+            "test_r2": r.get("test_r2")}
+    data = pickle.dumps(blob)
+    fname = "bondmodel_" + "".join(ch for ch in name if ch.isalnum() or ch in "-_") + ".pkl"
+    return json.dumps({"b64": base64.b64encode(data).decode("ascii"), "fname": fname})
+
+
+def import_model(arg):
+    """base64 pickle'i yukler, RESULTS'a ekler; tahmin icin hazir hale getirir."""
+    global ACTIVE_FEATURE_COLS, ACTIVE_TARGET_COL
+    m = json.loads(arg)
+    try:
+        blob = pickle.loads(base64.b64decode(m["b64"]))
+    except Exception as e:
+        raise RuntimeError("Could not read the model file (%s)." % e)
+    if not isinstance(blob, dict) or "estimator" not in blob:
+        raise RuntimeError("This file is not a Bond Stress model.")
+    feats = list(blob.get("feature_cols", []))
+    name = str(blob.get("model_name", "Loaded model"))
+    base, i = name, 2
+    while name in RESULTS:
+        name = "%s (%d)" % (base, i); i += 1
+    nfe = len(feats)
+    RESULTS[name] = dict(estimator=blob["estimator"], feature_cols=feats,
+                         target_col=blob.get("target_col", ACTIVE_TARGET_COL),
+                         fc_power=float(blob.get("fc_power", 1.0)),
+                         scenario=blob.get("scenario", "loaded model"),
+                         test_r2=blob.get("test_r2", float("nan")),
+                         cv_r2=float("nan"), cv_mean=float("nan"), cv_std=float("nan"),
+                         test_rmse=float("nan"), test_mae=float("nan"), test_mape=float("nan"),
+                         bo_history=[], bo_params={}, best_params={},
+                         X_test=np.empty((0, nfe)), y_test=np.array([]), y_pred=np.array([]),
+                         X_train=np.empty((0, nfe)), y_train=np.array([]))
+    ACTIVE_FEATURE_COLS = feats or ACTIVE_FEATURE_COLS
+    ACTIVE_TARGET_COL = blob.get("target_col", ACTIVE_TARGET_COL)
+    return json.dumps({"model": name, "feature_cols": feats,
+                       "target_col": ACTIVE_TARGET_COL,
+                       "test_r2": blob.get("test_r2"), "scenario": blob.get("scenario", "")})
 `;
 
 const HANDLERS = {
@@ -985,6 +1072,8 @@ const HANDLERS = {
   train: "train",
   plot: "plot_data",
   predict: "predict_one",
+  export: "export_model",
+  import: "import_model",
 };
 
 function withTimeout(promise, ms, label){
@@ -1142,7 +1231,6 @@ let FLAGS = null;
 function onReady(flags){
   FLAGS = flags;
   engineReady = true; _engineResolve();
-  applyEnglishUi();
   setupModernControls();
   setStatus("Ready — upload a workbook", "ready");
   $("boot").style.display = "none";
@@ -1263,40 +1351,6 @@ function renderPredictionFields(cols){
   });
 }
 
-function applyEnglishUi(){
-  $("topbar").querySelector("h1").textContent="Bond Stress Prediction Tool";
-  $("topbar").querySelector(".ver").textContent="v2.0 · analytical workspace";
-  $("topbar").querySelector(".author").innerHTML="τ<sub>max</sub> Prediction · Ahmet Şimşek";
-  $("status-chip").textContent="Starting analytical engine…";
-  $("boot-msg").innerHTML="Preparing the analytical engine…<br><span style='font-size:11px'>The first visit may take a little longer while the browser caches the scientific runtime.</span>";
-  document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 · Data","2 · Outlier filter","3 · Model training","4 · Prediction"][i]||el.textContent);
-  $("btn-load").textContent="Load data"; $("btn-filter").textContent="Apply filter"; $("btn-reset").textContent="Reset data"; $("btn-train").textContent="Train models"; $("btn-predict").textContent="Predict";
-  $("card-results").querySelector("h2").textContent="Model results"; $("card-plot").querySelector("h2").textContent="Charts"; $("card-log").querySelector("h2").textContent="Terminal";
-  $("card-results").querySelectorAll("th").forEach((el,i)=>el.textContent=["Model","Best CV R²","Test R²","Test RMSE (MPa)","Training n","Test n"][i]||el.textContent);
-  $("pred-out").textContent="No prediction yet.";
-  $("btn-plot").textContent="Draw chart";
-  $("file-name").textContent="No file selected"; $("data-summary").textContent="No data loaded.";
-  document.querySelector(".uz-text").textContent="Click to browse or drop a CSV / Excel file (.csv, .xlsx, .xls)";
-  $("sheet-sel").previousElementSibling.textContent="Sheet";
-  $("ck-grubbs").nextElementSibling.textContent="Grubbs test · α =";
-  $("ck-iqr").nextElementSibling.textContent="IQR rule · k =";
-  $("ck-grubbs").closest(".sec").querySelector("label[style]").textContent="Filter columns";
-  $("ck-rf").closest(".sec").querySelectorAll(".row4 label").forEach((el,i)=>el.textContent=["Search trials","CV folds","Test ratio","Random seed"][i]);
-  $("ck-rf").closest(".sec").querySelector(".mini").textContent="Training runs locally in your browser. Progress is shown in Terminal.";
-  $("btn-predict").closest(".sec").querySelector(".mini").textContent="Blank inputs remain missing and are not median-imputed. Transverse geometry is ignored when reinforcement is 0 or blank.";
-  $("card-plot").querySelectorAll("label").forEach((el,i)=>el.textContent=["Chart","Model","X variable","Y variable","X min","X max","Y min","Y max"][i]||el.textContent);
-  $("sel-free-c")?.closest(".fld")?.remove();
-  $("card-plot").querySelector(".mini").textContent="Zoom and pan are available directly in the chart.";
-  $("card-log").querySelector("h2").textContent="Terminal";
-  $("btn-default")?.remove(); $("sel-fcpow")?.closest(".row2")?.querySelector("div:last-child")?.remove();
-  $("status-chip").textContent="Starting analytical engine...";
-  $("boot-msg").innerHTML="Preparing the analytical engine...<br><span style='font-size:11px'>The first visit may take a little longer while the browser caches the scientific runtime.</span>";
-  document.querySelectorAll(".sec-title").forEach((el,i)=>el.textContent=["1 - Data","2 - Outlier filter","3 - Model training","4 - Prediction"][i]||el.textContent);
-  $("card-results").querySelectorAll("th").forEach((el,i)=>el.textContent=["Model","Best CV R2","Test R2","Test RMSE (MPa)","Training n","Test n"][i]||el.textContent);
-  $("ck-grubbs").nextElementSibling.textContent="Grubbs test - alpha =";
-  $("ck-iqr").nextElementSibling.textContent="IQR rule - k =";
-}
-
 async function sendFile(buf, name){
   fileBuffer = buf;
   fileName = name || "uploaded file";
@@ -1330,13 +1384,63 @@ async function loadSheet(){
       "Target '" + r.target_col + "' " + (r.has_target ? "available (valid: " + r.target_n + ")" : "<span style='color:var(--warn)'>missing</span>");
     buildColList(r.numeric_cols, r.default_selected);
     fillFreeSelects(r.numeric_cols);
-    renderPredictionFields(r.feature_cols || []);
-    window.__featureCols = r.feature_cols || [];
-    ACTIVE_TARGET_COL = r.target_col || TARGET_COL;
+    populateSchema(r);
     logLine("Loaded " + r.n_rows + " rows and " + r.n_cols + " columns from '" + sheet + "'.", "ok");
     setStatus("Data ready — filtering and training available", "ready");
   } catch(err){ logErr(err); setStatus("Data loading failed", "err"); }
 }
+
+/* ── hedef + ozellik secimi (farkli sutun adli veri setlerine uyum) ── */
+let SCHEMA = {numeric: [], defaultTarget: null, defaultFeatures: []};
+
+function populateSchema(r){
+  SCHEMA.numeric = r.numeric_cols || [];
+  SCHEMA.defaultTarget = r.target_col || (SCHEMA.numeric[SCHEMA.numeric.length - 1] || null);
+  SCHEMA.defaultFeatures = (r.feature_cols && r.feature_cols.length) ? r.feature_cols
+                            : SCHEMA.numeric.filter(c => c !== SCHEMA.defaultTarget);
+  const sel = $("sel-target");
+  sel.innerHTML = "";
+  SCHEMA.numeric.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o); });
+  sel.value = SCHEMA.defaultTarget;
+  buildFeatureList(SCHEMA.defaultFeatures);
+  $("schema-box").style.display = "block";
+  refreshFromSelection();
+}
+
+function buildFeatureList(checked){
+  const target = $("sel-target").value;
+  const box = $("feat-list");
+  box.innerHTML = "";
+  const chk = new Set(checked || []);
+  SCHEMA.numeric.filter(c => c !== target).forEach(c => {
+    const row = document.createElement("label"); row.className = "ckrow";
+    const ck = document.createElement("input"); ck.type = "checkbox"; ck.value = c; ck.checked = chk.has(c);
+    const sp = document.createElement("span"); sp.textContent = c; sp.title = c;
+    row.appendChild(ck); row.appendChild(sp); box.appendChild(row);
+  });
+}
+
+function selectedFeatures(){
+  return Array.from($("feat-list").querySelectorAll("input:checked")).map(i => i.value);
+}
+
+function refreshFromSelection(){
+  const feats = selectedFeatures();
+  window.__featureCols = feats;
+  ACTIVE_TARGET_COL = $("sel-target").value;
+  renderPredictionFields(feats);
+}
+
+$("sel-target").addEventListener("change", () => {
+  // Hedef degisince onceki secimleri koruyarak ozellik listesini yeniden kur.
+  const keep = selectedFeatures();
+  buildFeatureList(keep.length ? keep : SCHEMA.defaultFeatures);
+  refreshFromSelection();
+});
+$("feat-list").addEventListener("change", refreshFromSelection);
+$("btn-feat-all").addEventListener("click", () => { $("feat-list").querySelectorAll("input").forEach(i => i.checked = true); refreshFromSelection(); });
+$("btn-feat-none").addEventListener("click", () => { $("feat-list").querySelectorAll("input").forEach(i => i.checked = false); refreshFromSelection(); });
+$("btn-feat-reset").addEventListener("click", () => { $("sel-target").value = SCHEMA.defaultTarget; buildFeatureList(SCHEMA.defaultFeatures); refreshFromSelection(); });
 
 async function processSelectedFile(f){
   if (!f) return;
@@ -1404,8 +1508,9 @@ $("btn-reset").addEventListener("click", async () => {
 /* ── 3: eğitim ── */
 function addResultRow(p){
   const tr = document.createElement("tr");
-  [p.model, p.cv_r2.toFixed(3), p.test_r2.toFixed(3), p.test_rmse.toFixed(2),
-   p.n_train, p.n_test].forEach(v => {
+  const fmt = (v,d)=> (v==null||isNaN(v)) ? "—" : Number(v).toFixed(d);
+  [p.model, fmt(p.cv_mean,3)+" ± "+fmt(p.cv_std,3), fmt(p.test_r2,3), fmt(p.test_rmse,2),
+   fmt(p.test_mae,2), fmt(p.test_mape,1), p.n_train, p.n_test].forEach(v => {
     const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
   });
   $("res-body").appendChild(tr);
@@ -1423,6 +1528,10 @@ function registerModel(name){
 
 $("btn-train").addEventListener("click", async () => {
   if (!dataLoaded){ logErr(new Error("Upload data in section 1 first.")); return; }
+  const target = $("sel-target").value;
+  const features = selectedFeatures();
+  if (!target){ logErr(new Error("Choose a target column in section 1.")); return; }
+  if (!features.length){ logErr(new Error("Select at least one feature column in section 1.")); return; }
   const models = [];
   if ($("ck-rf").checked) models.push("Random Forest");
   if ($("ck-xgb").checked) models.push("XGBoost");
@@ -1446,6 +1555,8 @@ $("btn-train").addEventListener("click", async () => {
     }
     await call("train", {
       models,
+      target,
+      features,
       scenario: ($("sel-scenario") && $("sel-scenario").value) || "tum_veri",
       fc_power: 1.0,
       n_iter: Math.max(1, parseInt($("in-iter").value) || 15),
@@ -1713,6 +1824,44 @@ $("btn-dl-xlsx").addEventListener("click", downloadExcel);
 $("btn-dl-csv").addEventListener("click", downloadCSV);
 $("btn-dl-pdf").addEventListener("click", downloadPDF);
 
+/* model kaydet / yukle */
+function arrayBufferToBase64(buf){
+  const bytes = new Uint8Array(buf); let bin = ""; const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+$("btn-save-model").addEventListener("click", async () => {
+  const name = $("sel-pred-model").value;
+  if (!name){ logErr(new Error("Train or load a model first.")); return; }
+  try{
+    const r = await call("export", {model:name});
+    const bytes = Uint8Array.from(atob(r.b64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], {type:"application/octet-stream"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = r.fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    logLine("Model '" + name + "' saved to " + r.fname + ".", "ok");
+  } catch(err){ logErr(err); }
+});
+$("model-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  setStatus("Loading model...", "load");
+  try{
+    await ensureEngine();
+    const buf = await f.arrayBuffer();
+    const r = await call("import", {b64: arrayBufferToBase64(buf)});
+    registerModel(r.model);
+    renderPredictionFields(r.feature_cols || []);
+    window.__featureCols = r.feature_cols || [];
+    ACTIVE_TARGET_COL = r.target_col || ACTIVE_TARGET_COL;
+    $("sel-pred-model").value = r.model;
+    const r2s = (r.test_r2 != null && !isNaN(r.test_r2)) ? " (Test R²=" + Number(r.test_r2).toFixed(3) + ")" : "";
+    logLine("Model '" + r.model + "' loaded" + r2s + ". Ready to predict.", "ok");
+    setStatus("Model loaded — prediction ready", "ready");
+  } catch(err){ logErr(err); setStatus("Model load failed", "err"); }
+});
+
 /* ── 4: tahmin ── */
 $("btn-predict").addEventListener("click", async () => {
   const model = $("sel-pred-model").value;
@@ -1723,14 +1872,13 @@ $("btn-predict").addEventListener("click", async () => {
     const r = await call("predict", {model, row});
     $("pred-out").innerHTML = "τ<sub>max</sub> ≈ <span style='font-size:16px'>" + r.pred.toFixed(2) +
       " MPa</span><br><span style='color:var(--txt2);font-weight:400'>" + r.model +
-      " · senaryo: " + r.scenario + " · Test R²=" + r.test_r2.toFixed(2) + "</span>";
+      " · senaryo: " + r.scenario + ((r.test_r2!=null && !isNaN(r.test_r2)) ? " · Test R²=" + Number(r.test_r2).toFixed(2) : "") + "</span>";
   } catch(err){ logErr(err); $("pred-out").textContent = "—"; }
 });
 
 /* ── başlat ── */
 // Arayüz kurulumu motoru asla bloklamamalı: hata olsa bile motor başlar.
 try {
-  applyEnglishUi();
   setupModernControls();
   // Arayüzü hemen aç; motor (Pyodide) arka planda yüklenmeye devam etsin.
   $("boot").style.display = "none";

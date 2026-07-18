@@ -8,16 +8,23 @@ veriniz hiçbir yere gönderilmez.
 
 ## Özellikler
 
-1. **Veri** — kendi CSV/Excel dosyanı yükle (sürükle-bırak desteklenir), sayfa seçimi
+1. **Veri** — kendi CSV/Excel dosyanı yükle (sürükle-bırak desteklenir), sayfa seçimi.
+   Yükleme sonrası **hedef kolon** ve **özellik kolonları** elle seçilir — kendi bond
+   şeman farklı sütun adlarıyla gelse de (proje sütunları bulunamazsa) araç genel
+   sayısal veriye otomatik uyum sağlar, hedefi/özellikleri sen belirlersin.
 2. **Aykırı değer filtresi** — Grubbs testi / IQR kuralı, kolon seçimli
 3. **Eğitim** — Random Forest / XGBoost / SVR + Bayesian hiperparametre araması
-   (scikit-optimize), senaryo filtresi, fc üssü seçeneği
+   (scikit-optimize), senaryo filtresi (deformed/plain vb.), fc üssü seçeneği
 4. **Grafikler** — parite, BO yakınsaması, 3B BO gezinme yolu, permütasyon özellik
    önemi, SHAP özet/önem, artıklar, serbest saçılım, 3B parametre yüzeyi;
    min/maks, zoom/pan (Plotly). Her grafiğin çizildiği eksen verileri **Excel/CSV**
    olarak, görseli **PDF** olarak indirilebilir.
-5. **Tahmin** — eğitilen modelle tek numune tahmini; boş bırakılan özellik
-   "ölçülmemiş" olarak işlenir (MissingAwareScaler), TR mantığı otomatik uygulanır
+5. **Sonuç metrikleri** — CV R² (ortalama ± std), Test R², RMSE, MAE, MAPE
+6. **Model kaydet/yükle** — eğitilen model `.pkl` olarak indirilir, sonra başka bir
+   oturumda geri yüklenip yeniden eğitmeden tahmin için kullanılabilir
+7. **Tahmin** — eğitilen (veya yüklenen) modelle tek numune tahmini; boş bırakılan
+   özellik "ölçülmemiş" olarak işlenir (MissingAwareScaler), bar type
+   (deformed/plain) ve TR mantığı otomatik uygulanır
 
 Eğitim/veri mantığı, tez deposundaki `02_max_bond_stress_pred.ipynb` defteri ve
 eski masaüstü uygulamasıyla (bkz. `legacy/`) birebir aynıdır.
