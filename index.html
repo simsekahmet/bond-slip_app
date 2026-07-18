@@ -590,7 +590,14 @@ def apply_tr_logic(feats):
     feats = feats.copy()
     feats[TR_FLAG] = pd.to_numeric(feats[TR_FLAG], errors="coerce").fillna(0)
     active = feats[TR_FLAG].eq(1)
-    feats.loc[~active, TR_GEO_COLS] = np.nan
+    # SADECE zaten var olan TR geometri kolonlarina dokunulur. pandas'ta
+    # .loc[mask, YENI_KOLON_ADLARI] = deger, o kolonlar yoksa OTOMATIK OLARAK
+    # OLUSTURUR - bu da TR geometrisi olmadan egitilmis (ör. sabit TR=0
+    # senaryosuna ait, disaridan yuklenen) modellerde X'in sekli beklenmedik
+    # sekilde buyuyup tahmini bozuyordu.
+    present = [c for c in TR_GEO_COLS if c in feats.columns]
+    if present:
+        feats.loc[~active, present] = np.nan
     return feats
 
 
@@ -1078,11 +1085,15 @@ def predict_one(arg):
     if name not in RESULTS:
         raise RuntimeError("Train a model first.")
     r = RESULTS[name]
-    # ONEMLI: her modelin KENDI ozellik listesi/sirasi kullanilmali - global
-    # ACTIVE_FEATURE_COLS baska bir model egitilince/yuklenince degisebilir,
-    # bu da yanlis kolonlarla/sirayla tahmin yapip hataya veya sessiz yanlis
-    # sonuca yol aciyordu (birden fazla model bir arada yuklendiginde).
-    feat_cols = list(r.get("feature_cols") or ACTIVE_FEATURE_COLS)
+    # ONEMLI: her modelin KENDI ozellik listesi/sirasi kullanilmali. Global
+    # ACTIVE_FEATURE_COLS'a asla geri DUSULMEZ - baska bir model egitilince/
+    # yuklenince global degisir; bu modelin ozellik listesi bos/eksikse bu,
+    # o modelin kendi hatasidir ve baska bir modelin ozellikleriyle sessizce
+    # (yanlis sekilli/yanlis anlamli) tahmine calisilmamalidir.
+    feat_cols = list(r.get("feature_cols") or [])
+    if not feat_cols:
+        raise RuntimeError("This model has no recorded feature list; "
+                           "please reload it before predicting.")
     row = {}
     for c in feat_cols + ["embedment_length_mm", "concrete_cover_mm"]:
         v = m["row"].get(c)
@@ -1151,7 +1162,32 @@ def import_model(arg):
                            "PyTorch/PINN models cannot run in the browser." % e)
     if not isinstance(blob, dict) or "estimator" not in blob:
         raise RuntimeError("This file is not a Bond Stress model.")
-    feats = list(blob.get("feature_cols") or blob.get("features") or [])
+    # Farkli disaridan-gelen pickle bicimleri farkli anahtar adlari kullanabilir;
+    # genis bir aglama yapiyoruz.
+    feats = list(blob.get("feature_cols") or blob.get("features")
+                or blob.get("feature_names") or blob.get("columns") or [])
+    # Kaydedilen ozellik listesi, modelin GERCEKTEN egitildigi girdi sayisiyla
+    # (pipeline'in ilk adiminin n_features_in_'i) uyusmuyorsa - eski/farkli bir
+    # notebook surumunden kalma dosya olabilir - once uygulamanin kendi standart
+    # 8-ozellik semasiyla uyusup uyusmadigina bakiyoruz; o da tutmuyorsa acik ve
+    # anlasilir bir hatayla durduruyoruz (yanlis sekilli veriyle sessizce tahmine
+    # calisip anlasilmaz bir numpy hatasi vermek yerine).
+    est = blob["estimator"]
+    actual_n = None
+    try:
+        first_step = est.steps[0][1] if hasattr(est, "steps") else est
+        actual_n = getattr(first_step, "n_features_in_", None)
+    except Exception:
+        actual_n = None
+    if actual_n is not None and len(feats) != int(actual_n):
+        if int(actual_n) == len(FEATURE_COLS):
+            feats = list(FEATURE_COLS)
+        else:
+            raise RuntimeError(
+                "This model's saved feature list has %d entries, but the "
+                "fitted model actually expects %d inputs — the file's "
+                "metadata doesn't match its own estimator, so it can't be "
+                "used for prediction here." % (len(feats), int(actual_n)))
     # Bu uygulamanin kendi exportu icin model_name zaten anlamli (ör. "Random
     # Forest"). Disaridan gelen (ör. 02 defterinin best_<senaryo>.pkl) dosyalarda
     # model_name yalniz algoritma turudur (birden fazla dosyada ayni deger
@@ -1166,19 +1202,27 @@ def import_model(arg):
     while name in RESULTS:
         name = "%s (%d)" % (base, i); i += 1
     nfe = len(feats)
-    test_r2 = blob.get("test_r2")
+    def _finite(v):
+        try:
+            v = float(v)
+            return v if np.isfinite(v) else None
+        except (TypeError, ValueError):
+            return None
+    test_r2 = _finite(blob.get("test_r2"))
     if test_r2 is None:
-        test_r2 = blob.get("nested_cv_r2")
-    try:
-        test_r2 = float(test_r2) if test_r2 is not None and np.isfinite(test_r2) else None
-    except (TypeError, ValueError):
-        test_r2 = None
-    RESULTS[name] = dict(estimator=blob["estimator"], feature_cols=feats,
+        test_r2 = _finite(blob.get("nested_cv_r2"))
+    # 02 defteri nested_cv_r2'nin yaninda ayrica "selection_inner_cv_r2" da
+    # saklar (senaryo bazinda modelin secildigi ic-CV skoru) - varsa Model
+    # results tablosunda CV R2 sutununda gosterilir (baska turlu hep "—" kalirdi).
+    cv_mean = _finite(blob.get("selection_inner_cv_r2"))
+    RESULTS[name] = dict(estimator=est, feature_cols=feats,
                          target_col=blob.get("target_col", ACTIVE_TARGET_COL),
                          fc_power=float(blob.get("fc_power", 1.0)),
                          scenario=blob.get("scenario", "loaded model"),
                          test_r2=test_r2,
-                         cv_r2=float("nan"), cv_mean=float("nan"), cv_std=float("nan"),
+                         cv_r2=float("nan"),
+                         cv_mean=cv_mean if cv_mean is not None else float("nan"),
+                         cv_std=float("nan"),
                          test_rmse=float("nan"), test_mae=float("nan"), test_mape=float("nan"),
                          bo_history=[], bo_params={}, best_params={},
                          X_test=np.empty((0, nfe)), y_test=np.array([]), y_pred=np.array([]),
@@ -1187,7 +1231,8 @@ def import_model(arg):
     ACTIVE_TARGET_COL = blob.get("target_col", ACTIVE_TARGET_COL)
     return json.dumps({"model": name, "feature_cols": feats,
                        "target_col": ACTIVE_TARGET_COL,
-                       "test_r2": test_r2, "scenario": blob.get("scenario", "")})
+                       "test_r2": test_r2, "cv_mean": cv_mean,
+                       "scenario": blob.get("scenario", "")})
 `;
 
 const HANDLERS = {
@@ -2133,8 +2178,9 @@ $("model-file").addEventListener("change", async (e) => {
       }
     }
     // Model results tablosuna da satir ekle: yuklenen modelin metrikleri
-    // (varsa Test R2, kalanlari "—") artik orada da gorunur.
-    addResultRow({model: r.model, cv_mean: null, cv_std: null, test_r2: r.test_r2,
+    // (varsa Test R2 ve CV R2, kalanlari kaynak dosyada olmadigi icin "—")
+    // artik orada da gorunur.
+    addResultRow({model: r.model, cv_mean: r.cv_mean, cv_std: null, test_r2: r.test_r2,
                   test_rmse: null, test_mae: null, test_mape: null,
                   n_train: "—", n_test: "—", feature_cols: r.feature_cols || []});
     renderPredictionFields(r.feature_cols || []);
