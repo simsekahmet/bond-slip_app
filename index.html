@@ -1077,18 +1077,17 @@ def predict_one(arg):
     if name not in RESULTS:
         raise RuntimeError("Train a model first.")
     r = RESULTS[name]
-    feature_cols = list(r.get("feature_cols") or ACTIVE_FEATURE_COLS)
     row = {}
-    for c in feature_cols + ["embedment_length_mm", "concrete_cover_mm"]:
+    for c in ACTIVE_FEATURE_COLS + ["embedment_length_mm", "concrete_cover_mm"]:
         v = m["row"].get(c)
         row[c] = np.nan if v is None else float(v)
-    if "embedment_length_mm" in m["row"] and "embedment_length_db" in feature_cols:
+    if "embedment_length_mm" in m["row"] and "embedment_length_db" in ACTIVE_FEATURE_COLS:
         db = row.get("bar_diameter_mm", np.nan)
         row["embedment_length_db"] = np.nan if not np.isfinite(db) else (np.nan if row.get("embedment_length_mm") is None else row["embedment_length_mm"] / db)
-    if "concrete_cover_mm" in m["row"] and "concrete_cover_db" in feature_cols:
+    if "concrete_cover_mm" in m["row"] and "concrete_cover_db" in ACTIVE_FEATURE_COLS:
         db = row.get("bar_diameter_mm", np.nan)
         row["concrete_cover_db"] = np.nan if not np.isfinite(db) else (np.nan if row.get("concrete_cover_mm") is None else row["concrete_cover_mm"] / db)
-    X = pd.DataFrame([row], columns=feature_cols)
+    X = pd.DataFrame([row], columns=ACTIVE_FEATURE_COLS)
     if TR_FLAG in X.columns:
         X = apply_tr_logic(X)
     if "concrete_strength_mpa" in X.columns:
@@ -1109,10 +1108,7 @@ def export_model(arg):
             "estimator": r["estimator"], "feature_cols": r["feature_cols"],
             "target_col": r.get("target_col", ACTIVE_TARGET_COL),
             "fc_power": r.get("fc_power", 1.0), "scenario": r.get("scenario", ""),
-            "test_r2": r.get("test_r2"), "cv_mean": r.get("cv_mean"),
-            "cv_std": r.get("cv_std"), "test_rmse": r.get("test_rmse"),
-            "test_mae": r.get("test_mae"), "test_mape": r.get("test_mape"),
-            "n_train": int(len(r.get("y_train", []))), "n_test": int(len(r.get("y_test", [])))}
+            "test_r2": r.get("test_r2")}
     data = pickle.dumps(blob)
     fname = "bondmodel_" + "".join(ch for ch in name if ch.isalnum() or ch in "-_") + ".pkl"
     return json.dumps({"b64": base64.b64encode(data).decode("ascii"), "fname": fname})
@@ -1147,69 +1143,36 @@ def import_model(arg):
                            "scikit-learn based models (Random Forest / "
                            "XGBoost / SVR / Linear) are supported here — "
                            "PyTorch/PINN models cannot run in the browser." % e)
-    if isinstance(blob, dict):
-        estimator = next((blob.get(k) for k in ("estimator", "best_estimator", "pipeline", "model")
-                          if hasattr(blob.get(k), "predict")), None)
-        meta = blob
-    elif hasattr(blob, "predict"):
-        estimator, meta = blob, {}
-    else:
-        estimator, meta = None, {}
-    if estimator is None:
-        raise RuntimeError("This file does not contain a supported scikit-learn estimator.")
-    feats = list(meta.get("feature_cols") or meta.get("features") or meta.get("feature_names") or meta.get("input_features") or [])
-    if not feats and hasattr(estimator, "feature_names_in_"):
-        feats = [str(v) for v in estimator.feature_names_in_]
-    if not feats and hasattr(estimator, "n_features_in_"):
-        n = int(estimator.n_features_in_)
-        feats = FEATURE_COLS[:n] if n <= len(FEATURE_COLS) else ["feature_%d" % (i + 1) for i in range(n)]
-    raw_file_name = str(m.get("file_name") or "Loaded model")
-    file_stem = raw_file_name.replace("\\", "/").split("/")[-1]
-    if "." in file_stem:
-        file_stem = file_stem.rsplit(".", 1)[0]
-    name = str(meta.get("model_name") or meta.get("name") or meta.get("model_label") or file_stem or "Loaded model")
+    if not isinstance(blob, dict) or "estimator" not in blob:
+        raise RuntimeError("This file is not a Bond Stress model.")
+    feats = list(blob.get("feature_cols") or blob.get("features") or [])
+    name = str(blob.get("model_name", "Loaded model"))
+    base, i = name, 2
+    while name in RESULTS:
+        name = "%s (%d)" % (base, i); i += 1
     nfe = len(feats)
-    def _metric(value):
-        """Return a JSON-safe scalar for scalar/list/NumPy pickle metadata."""
-        try:
-            if isinstance(value, (list, tuple, np.ndarray)):
-                arr = np.asarray(value).reshape(-1)
-                value = arr[0] if arr.size else None
-            value = float(value)
-            return value if np.isfinite(value) else None
-        except (TypeError, ValueError):
-            return None
-    test_r2 = meta.get("test_r2")
+    test_r2 = blob.get("test_r2")
     if test_r2 is None:
-        test_r2 = meta.get("nested_cv_r2")
-    test_r2 = _metric(test_r2)
-    cv_mean = _metric(meta.get("cv_mean", meta.get("cv_r2", meta.get("nested_cv_r2"))))
-    cv_std = _metric(meta.get("cv_std", meta.get("nested_cv_r2_std")))
-    test_rmse = _metric(meta.get("test_rmse"))
-    test_mae = _metric(meta.get("test_mae"))
-    test_mape = _metric(meta.get("test_mape"))
-    RESULTS[name] = dict(estimator=estimator, feature_cols=feats,
-                         target_col=meta.get("target_col", ACTIVE_TARGET_COL),
-                         fc_power=_metric(meta.get("fc_power", 1.0)) or 1.0,
-                         scenario=meta.get("scenario", "loaded model"),
+        test_r2 = blob.get("nested_cv_r2")
+    try:
+        test_r2 = float(test_r2) if test_r2 is not None and np.isfinite(test_r2) else None
+    except (TypeError, ValueError):
+        test_r2 = None
+    RESULTS[name] = dict(estimator=blob["estimator"], feature_cols=feats,
+                         target_col=blob.get("target_col", ACTIVE_TARGET_COL),
+                         fc_power=float(blob.get("fc_power", 1.0)),
+                         scenario=blob.get("scenario", "loaded model"),
                          test_r2=test_r2,
-                         cv_r2=cv_mean if cv_mean is not None else float("nan"),
-                         cv_mean=cv_mean if cv_mean is not None else float("nan"),
-                         cv_std=cv_std if cv_std is not None else float("nan"),
-                         test_rmse=test_rmse if test_rmse is not None else float("nan"),
-                         test_mae=test_mae if test_mae is not None else float("nan"),
-                         test_mape=test_mape if test_mape is not None else float("nan"),
+                         cv_r2=float("nan"), cv_mean=float("nan"), cv_std=float("nan"),
+                         test_rmse=float("nan"), test_mae=float("nan"), test_mape=float("nan"),
                          bo_history=[], bo_params={}, best_params={},
                          X_test=np.empty((0, nfe)), y_test=np.array([]), y_pred=np.array([]),
                          X_train=np.empty((0, nfe)), y_train=np.array([]))
     ACTIVE_FEATURE_COLS = feats or ACTIVE_FEATURE_COLS
-    ACTIVE_TARGET_COL = meta.get("target_col", ACTIVE_TARGET_COL)
+    ACTIVE_TARGET_COL = blob.get("target_col", ACTIVE_TARGET_COL)
     return json.dumps({"model": name, "feature_cols": feats,
                        "target_col": ACTIVE_TARGET_COL,
-                       "test_r2": test_r2, "cv_mean": cv_mean, "cv_std": cv_std,
-                       "test_rmse": test_rmse, "test_mae": test_mae,
-                       "test_mape": test_mape, "n_train": meta.get("n_train"),
-                       "n_test": meta.get("n_test"), "scenario": meta.get("scenario", "")})
+                       "test_r2": test_r2, "scenario": blob.get("scenario", "")})
 `;
 
 const HANDLERS = {
@@ -1688,7 +1651,6 @@ function addResultRow(p){
     const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
   });
   $("res-body").appendChild(tr);
-  tr.querySelectorAll("td").forEach(td => { td.textContent = td.textContent.replace(/â€”/g, "-").replace(/Â±/g, "+/-"); });
   registerModel(p.model);
 }
 
@@ -1697,7 +1659,7 @@ function registerModel(name){
   if (trainedModels.includes(name)) return;
   trainedModels.push(name);
   [$("sel-plot-model"), $("sel-pred-model")].forEach(sel => {
-    const o = document.createElement("option"); o.value = name; o.textContent = name; o.title = name; sel.appendChild(o);
+    const o = document.createElement("option"); o.textContent = name; sel.appendChild(o);
   });
 }
 
@@ -2123,7 +2085,7 @@ $("model-file").addEventListener("change", async (e) => {
     const b64 = arrayBufferToBase64(buf);
     let r;
     try{
-      r = await call("import", {b64, file_name:f.name});
+      r = await call("import", {b64});
     } catch(err){
       // Kaydedilen model XGBoost tabanliysa ve bu oturumda XGBoost paketi hic
       // egitim icin yuklenmediyse, unpickle "No module named 'xgboost'" ile
@@ -2131,15 +2093,12 @@ $("model-file").addEventListener("change", async (e) => {
       if (/xgboost/i.test(err && err.message || "")){
         logLine("Saved model needs the optional XGBoost package; loading it now...", "ok");
         await call("prepare", {});
-        r = await call("import", {b64, file_name:f.name});
+        r = await call("import", {b64});
       } else {
         throw err;
       }
     }
     registerModel(r.model);
-    addResultRow({model:r.model, cv_mean:r.cv_mean, cv_std:r.cv_std,
-                  test_r2:r.test_r2, test_rmse:r.test_rmse, test_mae:r.test_mae,
-                  test_mape:r.test_mape, n_train:r.n_train, n_test:r.n_test});
     renderPredictionFields(r.feature_cols || []);
     window.__featureCols = r.feature_cols || [];
     ACTIVE_TARGET_COL = r.target_col || ACTIVE_TARGET_COL;
@@ -2158,9 +2117,6 @@ $("btn-predict").addEventListener("click", async () => {
     const row = {};
     document.querySelectorAll(".pin").forEach(inp => { row[inp.dataset.col] = parseNum(inp.value); });
     const r = await call("predict", {model, row});
-    $("pred-out").textContent = "tau_max = " + r.pred.toFixed(2) + " MPa | Model: " + r.model +
-      ((r.test_r2!=null && !isNaN(r.test_r2)) ? " | Test R2=" + Number(r.test_r2).toFixed(2) : "");
-    return;
     $("pred-out").innerHTML = "τ<sub>max</sub> ≈ <span style='font-size:16px'>" + r.pred.toFixed(2) +
       " MPa</span><br><span style='color:var(--txt2);font-weight:400'>" + r.model +
       " · senaryo: " + r.scenario + ((r.test_r2!=null && !isNaN(r.test_r2)) ? " · Test R²=" + Number(r.test_r2).toFixed(2) : "") + "</span>";
