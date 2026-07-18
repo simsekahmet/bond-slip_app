@@ -861,7 +861,8 @@ def train(arg):
         pylog("   best parameters: %s" % best_params)
         pyrow(json.dumps({"model": name, "cv_mean": cv_mean, "cv_std": cv_std,
                           "test_r2": r2, "test_rmse": rmse, "test_mae": mae, "test_mape": mape,
-                          "n_train": int(len(ytr)), "n_test": int(len(yte))}))
+                          "n_train": int(len(ytr)), "n_test": int(len(yte)),
+                          "feature_cols": ACTIVE_FEATURE_COLS[:]}))
         trained.append(name)
     pylog("")
     pylog("OK — training complete. Review charts and use the prediction panel.")
@@ -1077,17 +1078,22 @@ def predict_one(arg):
     if name not in RESULTS:
         raise RuntimeError("Train a model first.")
     r = RESULTS[name]
+    # ONEMLI: her modelin KENDI ozellik listesi/sirasi kullanilmali - global
+    # ACTIVE_FEATURE_COLS baska bir model egitilince/yuklenince degisebilir,
+    # bu da yanlis kolonlarla/sirayla tahmin yapip hataya veya sessiz yanlis
+    # sonuca yol aciyordu (birden fazla model bir arada yuklendiginde).
+    feat_cols = list(r.get("feature_cols") or ACTIVE_FEATURE_COLS)
     row = {}
-    for c in ACTIVE_FEATURE_COLS + ["embedment_length_mm", "concrete_cover_mm"]:
+    for c in feat_cols + ["embedment_length_mm", "concrete_cover_mm"]:
         v = m["row"].get(c)
         row[c] = np.nan if v is None else float(v)
-    if "embedment_length_mm" in m["row"] and "embedment_length_db" in ACTIVE_FEATURE_COLS:
+    if "embedment_length_mm" in m["row"] and "embedment_length_db" in feat_cols:
         db = row.get("bar_diameter_mm", np.nan)
         row["embedment_length_db"] = np.nan if not np.isfinite(db) else (np.nan if row.get("embedment_length_mm") is None else row["embedment_length_mm"] / db)
-    if "concrete_cover_mm" in m["row"] and "concrete_cover_db" in ACTIVE_FEATURE_COLS:
+    if "concrete_cover_mm" in m["row"] and "concrete_cover_db" in feat_cols:
         db = row.get("bar_diameter_mm", np.nan)
         row["concrete_cover_db"] = np.nan if not np.isfinite(db) else (np.nan if row.get("concrete_cover_mm") is None else row["concrete_cover_mm"] / db)
-    X = pd.DataFrame([row], columns=ACTIVE_FEATURE_COLS)
+    X = pd.DataFrame([row], columns=feat_cols)
     if TR_FLAG in X.columns:
         X = apply_tr_logic(X)
     if "concrete_strength_mpa" in X.columns:
@@ -1146,7 +1152,16 @@ def import_model(arg):
     if not isinstance(blob, dict) or "estimator" not in blob:
         raise RuntimeError("This file is not a Bond Stress model.")
     feats = list(blob.get("feature_cols") or blob.get("features") or [])
-    name = str(blob.get("model_name", "Loaded model"))
+    # Bu uygulamanin kendi exportu icin model_name zaten anlamli (ör. "Random
+    # Forest"). Disaridan gelen (ör. 02 defterinin best_<senaryo>.pkl) dosyalarda
+    # model_name yalniz algoritma turudur (birden fazla dosyada ayni deger
+    # tekrar edebilir); o durumda kullanicinin yukledigi DOSYA ADI gosterilir
+    # ki listede hangi modelin hangisi oldugu anlasilsin.
+    suggested = str(m.get("suggested_name") or "").strip()
+    if blob.get("format") == "bondstress-model-v1" or not suggested:
+        name = str(blob.get("model_name", "Loaded model"))
+    else:
+        name = suggested
     base, i = name, 2
     while name in RESULTS:
         name = "%s (%d)" % (base, i); i += 1
@@ -1646,22 +1661,36 @@ $("btn-reset").addEventListener("click", async () => {
 function addResultRow(p){
   const tr = document.createElement("tr");
   const fmt = (v,d)=> (v==null||isNaN(v)) ? "—" : Number(v).toFixed(d);
+  const n = (v) => (v==null || v==="") ? "—" : v;
   [p.model, fmt(p.cv_mean,3)+" ± "+fmt(p.cv_std,3), fmt(p.test_r2,3), fmt(p.test_rmse,2),
-   fmt(p.test_mae,2), fmt(p.test_mape,1), p.n_train, p.n_test].forEach(v => {
+   fmt(p.test_mae,2), fmt(p.test_mape,1), n(p.n_train), n(p.n_test)].forEach(v => {
     const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
   });
   $("res-body").appendChild(tr);
-  registerModel(p.model);
+  registerModel(p.model, p.feature_cols || []);
 }
 
 const trainedModels = [];
-function registerModel(name){
+// Her modelin KENDI ozellik listesini tutar - tahmin panelinde secili model
+// degisince (veya bir model yuklenince) dogru alanlarin cizilebilmesi icin.
+const MODEL_FEATURES = {};
+function registerModel(name, featureCols){
+  if (featureCols && featureCols.length) MODEL_FEATURES[name] = featureCols;
   if (trainedModels.includes(name)) return;
   trainedModels.push(name);
   [$("sel-plot-model"), $("sel-pred-model")].forEach(sel => {
     const o = document.createElement("option"); o.textContent = name; sel.appendChild(o);
   });
 }
+
+// Tahmin panelindeki "Model" secimi degistiginde, o modelin KENDI ozellik
+// alanlarini yeniden ciz - onceden secim degisince alanlar guncellenmiyordu,
+// bu da baska bir modelin alanlariyla yanlis/bos tahmine yol aciyordu.
+$("sel-pred-model").addEventListener("change", () => {
+  const name = $("sel-pred-model").value;
+  const feats = MODEL_FEATURES[name];
+  if (feats) { renderPredictionFields(feats); window.__featureCols = feats; }
+});
 
 $("btn-train").addEventListener("click", async () => {
   if (!dataLoaded){ logErr(new Error("Upload data in section 1 first.")); return; }
@@ -2083,9 +2112,14 @@ $("model-file").addEventListener("change", async (e) => {
     await ensureEngine();
     const buf = await f.arrayBuffer();
     const b64 = arrayBufferToBase64(buf);
+    // Dosya adi (uzantisiz) modelin gorunen ismi olarak kullanilir - disaridan
+    // gelen dosyalarda ic model_name genelde sadece algoritma turudur (ör.
+    // "Random Forest"), birden fazla dosyada tekrar edip listede hangisinin
+    // hangisi oldugunu anlamayi zorlastirir.
+    const suggestedName = f.name.replace(/\.[^./\\]+$/, "");
     let r;
     try{
-      r = await call("import", {b64});
+      r = await call("import", {b64, suggested_name: suggestedName});
     } catch(err){
       // Kaydedilen model XGBoost tabanliysa ve bu oturumda XGBoost paketi hic
       // egitim icin yuklenmediyse, unpickle "No module named 'xgboost'" ile
@@ -2093,12 +2127,16 @@ $("model-file").addEventListener("change", async (e) => {
       if (/xgboost/i.test(err && err.message || "")){
         logLine("Saved model needs the optional XGBoost package; loading it now...", "ok");
         await call("prepare", {});
-        r = await call("import", {b64});
+        r = await call("import", {b64, suggested_name: suggestedName});
       } else {
         throw err;
       }
     }
-    registerModel(r.model);
+    // Model results tablosuna da satir ekle: yuklenen modelin metrikleri
+    // (varsa Test R2, kalanlari "—") artik orada da gorunur.
+    addResultRow({model: r.model, cv_mean: null, cv_std: null, test_r2: r.test_r2,
+                  test_rmse: null, test_mae: null, test_mape: null,
+                  n_train: "—", n_test: "—", feature_cols: r.feature_cols || []});
     renderPredictionFields(r.feature_cols || []);
     window.__featureCols = r.feature_cols || [];
     ACTIVE_TARGET_COL = r.target_col || ACTIVE_TARGET_COL;
