@@ -1114,27 +1114,55 @@ def export_model(arg):
     return json.dumps({"b64": base64.b64encode(data).decode("ascii"), "fname": fname})
 
 
+def _ensure_pickle_compat_modules():
+    """Bu tez projesinin masaustu defterlerinde (02/03 vb.) egitilen .pkl
+    dosyalari 'pinn_common.MissingAwareScaler' sinifina referans verir.
+    pinn_common gercekte torch'a bagimli oldugu icin tarayicida import
+    edilemez; matematiksel olarak birebir ayni olan kendi sinifimizi ayni
+    modul yoluna kayit ederek disaridan gelen pickle'larin acilmasini
+    sagliyoruz (agirlik/state bu sekilde dogru sekilde geri yuklenir)."""
+    import sys, types
+    if "pinn_common" not in sys.modules:
+        stub = types.ModuleType("pinn_common")
+        stub.MissingAwareScaler = MissingAwareScaler
+        sys.modules["pinn_common"] = stub
+
+
 def import_model(arg):
-    """base64 pickle'i yukler, RESULTS'a ekler; tahmin icin hazir hale getirir."""
+    """base64 pickle'i yukler, RESULTS'a ekler; tahmin icin hazir hale getirir.
+    Hem bu uygulamanin kendi export ettigi formati hem de masaustu 02
+    defterinin kaydettigi 'best_<senaryo>.pkl' formatini (features/
+    nested_cv_r2 anahtarlariyla) kabul eder."""
     global ACTIVE_FEATURE_COLS, ACTIVE_TARGET_COL
     m = json.loads(arg)
+    _ensure_pickle_compat_modules()
     try:
         blob = pickle.loads(base64.b64decode(m["b64"]))
     except Exception as e:
-        raise RuntimeError("Could not read the model file (%s)." % e)
+        raise RuntimeError("Could not read the model file (%s). Only "
+                           "scikit-learn based models (Random Forest / "
+                           "XGBoost / SVR / Linear) are supported here — "
+                           "PyTorch/PINN models cannot run in the browser." % e)
     if not isinstance(blob, dict) or "estimator" not in blob:
         raise RuntimeError("This file is not a Bond Stress model.")
-    feats = list(blob.get("feature_cols", []))
+    feats = list(blob.get("feature_cols") or blob.get("features") or [])
     name = str(blob.get("model_name", "Loaded model"))
     base, i = name, 2
     while name in RESULTS:
         name = "%s (%d)" % (base, i); i += 1
     nfe = len(feats)
+    test_r2 = blob.get("test_r2")
+    if test_r2 is None:
+        test_r2 = blob.get("nested_cv_r2")
+    try:
+        test_r2 = float(test_r2) if test_r2 is not None and np.isfinite(test_r2) else None
+    except (TypeError, ValueError):
+        test_r2 = None
     RESULTS[name] = dict(estimator=blob["estimator"], feature_cols=feats,
                          target_col=blob.get("target_col", ACTIVE_TARGET_COL),
                          fc_power=float(blob.get("fc_power", 1.0)),
                          scenario=blob.get("scenario", "loaded model"),
-                         test_r2=blob.get("test_r2", float("nan")),
+                         test_r2=test_r2,
                          cv_r2=float("nan"), cv_mean=float("nan"), cv_std=float("nan"),
                          test_rmse=float("nan"), test_mae=float("nan"), test_mape=float("nan"),
                          bo_history=[], bo_params={}, best_params={},
@@ -1144,7 +1172,7 @@ def import_model(arg):
     ACTIVE_TARGET_COL = blob.get("target_col", ACTIVE_TARGET_COL)
     return json.dumps({"model": name, "feature_cols": feats,
                        "target_col": ACTIVE_TARGET_COL,
-                       "test_r2": blob.get("test_r2"), "scenario": blob.get("scenario", "")})
+                       "test_r2": test_r2, "scenario": blob.get("scenario", "")})
 `;
 
 const HANDLERS = {
