@@ -242,7 +242,7 @@ html[data-theme="dark"] .filter-choice .ckrow.active{border-color:#5b8dff;backgr
 
 <div id="topbar">
   <h1>Bond Stress Prediction Tool</h1>
-  <span class="ver">v2.0 · web</span>
+  <span class="ver">v2026.07.19 · web</span>
   <span id="status-chip">Starting...</span>
   <button id="theme-toggle" class="theme-toggle" type="button" title="Switch light / dark mode" aria-label="Switch light / dark mode">
     <span class="tt-icon tt-sun">☀️</span>
@@ -328,8 +328,6 @@ html[data-theme="dark"] .filter-choice .ckrow.active{border-color:#5b8dff;backgr
       </div>
       <div class="btn-row" style="margin-top:2px">
         <button class="btn btn-gray btn-sm" id="btn-save-model" type="button">Save model (.pkl)</button>
-        <label class="btn btn-gray btn-sm" for="model-file" style="cursor:pointer;margin:0">Load model (.pkl)</label>
-        <input type="file" id="model-file" accept=".pkl" style="display:none">
       </div>
       <div id="pred-out">No prediction yet.</div>
       <div class="mini">Blank inputs stay missing (not imputed). Transverse geometry is ignored when reinforcement is 0 or blank.</div>
@@ -1129,110 +1127,6 @@ def export_model(arg):
     data = pickle.dumps(blob)
     fname = "bondmodel_" + "".join(ch for ch in name if ch.isalnum() or ch in "-_") + ".pkl"
     return json.dumps({"b64": base64.b64encode(data).decode("ascii"), "fname": fname})
-
-
-def _ensure_pickle_compat_modules():
-    """Bu tez projesinin masaustu defterlerinde (02/03 vb.) egitilen .pkl
-    dosyalari 'pinn_common.MissingAwareScaler' sinifina referans verir.
-    pinn_common gercekte torch'a bagimli oldugu icin tarayicida import
-    edilemez; matematiksel olarak birebir ayni olan kendi sinifimizi ayni
-    modul yoluna kayit ederek disaridan gelen pickle'larin acilmasini
-    sagliyoruz (agirlik/state bu sekilde dogru sekilde geri yuklenir)."""
-    import sys, types
-    if "pinn_common" not in sys.modules:
-        stub = types.ModuleType("pinn_common")
-        stub.MissingAwareScaler = MissingAwareScaler
-        sys.modules["pinn_common"] = stub
-
-
-def import_model(arg):
-    """base64 pickle'i yukler, RESULTS'a ekler; tahmin icin hazir hale getirir.
-    Hem bu uygulamanin kendi export ettigi formati hem de masaustu 02
-    defterinin kaydettigi 'best_<senaryo>.pkl' formatini (features/
-    nested_cv_r2 anahtarlariyla) kabul eder."""
-    global ACTIVE_FEATURE_COLS, ACTIVE_TARGET_COL
-    m = json.loads(arg)
-    _ensure_pickle_compat_modules()
-    try:
-        blob = pickle.loads(base64.b64decode(m["b64"]))
-    except Exception as e:
-        raise RuntimeError("Could not read the model file (%s). Only "
-                           "scikit-learn based models (Random Forest / "
-                           "XGBoost / SVR / Linear) are supported here — "
-                           "PyTorch/PINN models cannot run in the browser." % e)
-    if not isinstance(blob, dict) or "estimator" not in blob:
-        raise RuntimeError("This file is not a Bond Stress model.")
-    # Farkli disaridan-gelen pickle bicimleri farkli anahtar adlari kullanabilir;
-    # genis bir aglama yapiyoruz.
-    feats = list(blob.get("feature_cols") or blob.get("features")
-                or blob.get("feature_names") or blob.get("columns") or [])
-    # Kaydedilen ozellik listesi, modelin GERCEKTEN egitildigi girdi sayisiyla
-    # (pipeline'in ilk adiminin n_features_in_'i) uyusmuyorsa - eski/farkli bir
-    # notebook surumunden kalma dosya olabilir - once uygulamanin kendi standart
-    # 8-ozellik semasiyla uyusup uyusmadigina bakiyoruz; o da tutmuyorsa acik ve
-    # anlasilir bir hatayla durduruyoruz (yanlis sekilli veriyle sessizce tahmine
-    # calisip anlasilmaz bir numpy hatasi vermek yerine).
-    est = blob["estimator"]
-    actual_n = None
-    try:
-        first_step = est.steps[0][1] if hasattr(est, "steps") else est
-        actual_n = getattr(first_step, "n_features_in_", None)
-    except Exception:
-        actual_n = None
-    if actual_n is not None and len(feats) != int(actual_n):
-        if int(actual_n) == len(FEATURE_COLS):
-            feats = list(FEATURE_COLS)
-        else:
-            raise RuntimeError(
-                "This model's saved feature list has %d entries, but the "
-                "fitted model actually expects %d inputs — the file's "
-                "metadata doesn't match its own estimator, so it can't be "
-                "used for prediction here." % (len(feats), int(actual_n)))
-    # Bu uygulamanin kendi exportu icin model_name zaten anlamli (ör. "Random
-    # Forest"). Disaridan gelen (ör. 02 defterinin best_<senaryo>.pkl) dosyalarda
-    # model_name yalniz algoritma turudur (birden fazla dosyada ayni deger
-    # tekrar edebilir); o durumda kullanicinin yukledigi DOSYA ADI gosterilir
-    # ki listede hangi modelin hangisi oldugu anlasilsin.
-    suggested = str(m.get("suggested_name") or "").strip()
-    if blob.get("format") == "bondstress-model-v1" or not suggested:
-        name = str(blob.get("model_name", "Loaded model"))
-    else:
-        name = suggested
-    base, i = name, 2
-    while name in RESULTS:
-        name = "%s (%d)" % (base, i); i += 1
-    nfe = len(feats)
-    def _finite(v):
-        try:
-            v = float(v)
-            return v if np.isfinite(v) else None
-        except (TypeError, ValueError):
-            return None
-    test_r2 = _finite(blob.get("test_r2"))
-    if test_r2 is None:
-        test_r2 = _finite(blob.get("nested_cv_r2"))
-    # 02 defteri nested_cv_r2'nin yaninda ayrica "selection_inner_cv_r2" da
-    # saklar (senaryo bazinda modelin secildigi ic-CV skoru) - varsa Model
-    # results tablosunda CV R2 sutununda gosterilir (baska turlu hep "—" kalirdi).
-    cv_mean = _finite(blob.get("selection_inner_cv_r2"))
-    RESULTS[name] = dict(estimator=est, feature_cols=feats,
-                         target_col=blob.get("target_col", ACTIVE_TARGET_COL),
-                         fc_power=float(blob.get("fc_power", 1.0)),
-                         scenario=blob.get("scenario", "loaded model"),
-                         test_r2=test_r2,
-                         cv_r2=float("nan"),
-                         cv_mean=cv_mean if cv_mean is not None else float("nan"),
-                         cv_std=float("nan"),
-                         test_rmse=float("nan"), test_mae=float("nan"), test_mape=float("nan"),
-                         bo_history=[], bo_params={}, best_params={},
-                         X_test=np.empty((0, nfe)), y_test=np.array([]), y_pred=np.array([]),
-                         X_train=np.empty((0, nfe)), y_train=np.array([]))
-    ACTIVE_FEATURE_COLS = feats or ACTIVE_FEATURE_COLS
-    ACTIVE_TARGET_COL = blob.get("target_col", ACTIVE_TARGET_COL)
-    return json.dumps({"model": name, "feature_cols": feats,
-                       "target_col": ACTIVE_TARGET_COL,
-                       "test_r2": test_r2, "cv_mean": cv_mean,
-                       "scenario": blob.get("scenario", "")})
 `;
 
 const HANDLERS = {
@@ -1244,7 +1138,6 @@ const HANDLERS = {
   plot: "plot_data",
   predict: "predict_one",
   export: "export_model",
-  import: "import_model",
 };
 
 function withTimeout(promise, ms, label){
@@ -2130,15 +2023,10 @@ $("btn-dl-csv").addEventListener("click", downloadCSV);
 $("btn-dl-png").addEventListener("click", downloadPNG);
 $("btn-dl-pdf").addEventListener("click", downloadPDF);
 
-/* model kaydet / yukle */
-function arrayBufferToBase64(buf){
-  const bytes = new Uint8Array(buf); let bin = ""; const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  return btoa(bin);
-}
+/* model kaydet */
 $("btn-save-model").addEventListener("click", async () => {
   const name = $("sel-pred-model").value;
-  if (!name){ logErr(new Error("Train or load a model first.")); return; }
+  if (!name){ logErr(new Error("Train a model first.")); return; }
   try{
     const r = await call("export", {model:name});
     const bytes = Uint8Array.from(atob(r.b64), c => c.charCodeAt(0));
@@ -2148,49 +2036,6 @@ $("btn-save-model").addEventListener("click", async () => {
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     logLine("Model '" + name + "' saved to " + r.fname + ".", "ok");
   } catch(err){ logErr(err); }
-});
-$("model-file").addEventListener("change", async (e) => {
-  const f = e.target.files[0]; e.target.value = "";
-  if (!f) return;
-  setStatus("Loading model...", "load");
-  try{
-    await ensureEngine();
-    const buf = await f.arrayBuffer();
-    const b64 = arrayBufferToBase64(buf);
-    // Dosya adi (uzantisiz) modelin gorunen ismi olarak kullanilir - disaridan
-    // gelen dosyalarda ic model_name genelde sadece algoritma turudur (ör.
-    // "Random Forest"), birden fazla dosyada tekrar edip listede hangisinin
-    // hangisi oldugunu anlamayi zorlastirir.
-    const suggestedName = f.name.replace(/\.[^./\\]+$/, "");
-    let r;
-    try{
-      r = await call("import", {b64, suggested_name: suggestedName});
-    } catch(err){
-      // Kaydedilen model XGBoost tabanliysa ve bu oturumda XGBoost paketi hic
-      // egitim icin yuklenmediyse, unpickle "No module named 'xgboost'" ile
-      // patlar. Paketi simdi yukleyip tek seferlik yeniden dene.
-      if (/xgboost/i.test(err && err.message || "")){
-        logLine("Saved model needs the optional XGBoost package; loading it now...", "ok");
-        await call("prepare", {});
-        r = await call("import", {b64, suggested_name: suggestedName});
-      } else {
-        throw err;
-      }
-    }
-    // Model results tablosuna da satir ekle: yuklenen modelin metrikleri
-    // (varsa Test R2 ve CV R2, kalanlari kaynak dosyada olmadigi icin "—")
-    // artik orada da gorunur.
-    addResultRow({model: r.model, cv_mean: r.cv_mean, cv_std: null, test_r2: r.test_r2,
-                  test_rmse: null, test_mae: null, test_mape: null,
-                  n_train: "—", n_test: "—", feature_cols: r.feature_cols || []});
-    renderPredictionFields(r.feature_cols || []);
-    window.__featureCols = r.feature_cols || [];
-    ACTIVE_TARGET_COL = r.target_col || ACTIVE_TARGET_COL;
-    $("sel-pred-model").value = r.model;
-    const r2s = (r.test_r2 != null && !isNaN(r.test_r2)) ? " (Test R²=" + Number(r.test_r2).toFixed(3) + ")" : "";
-    logLine("Model '" + r.model + "' loaded" + r2s + ". Ready to predict.", "ok");
-    setStatus("Model loaded — prediction ready", "ready");
-  } catch(err){ logErr(err); setStatus("Model load failed", "err"); }
 });
 
 /* ── 4: tahmin ── */
